@@ -15,6 +15,7 @@ pub mod mcp;
 pub mod record;
 pub mod redact;
 pub mod replay;
+pub mod security;
 pub mod storage;
 pub mod viewer;
 

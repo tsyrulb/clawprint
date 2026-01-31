@@ -433,51 +433,8 @@ impl ClawprintMcp {
             return text_result("No events to scan.".to_string());
         }
 
-        // Basic security scanning (full scanner in Step 4)
-        let mut findings = Vec::new();
-        let payload_patterns = [
-            ("rm -rf", "Destructive file deletion", "Critical"),
-            ("DROP TABLE", "SQL table deletion", "Critical"),
-            ("DELETE FROM", "SQL data deletion", "High"),
-            ("TRUNCATE", "SQL data truncation", "High"),
-            ("git push --force", "Force push to git", "High"),
-            ("git reset --hard", "Destructive git reset", "High"),
-            ("sudo ", "Privilege escalation via sudo", "Medium"),
-            ("chmod 777", "Overly permissive file permissions", "Medium"),
-            ("ignore previous", "Possible prompt injection", "High"),
-            ("ignore all instructions", "Possible prompt injection", "Critical"),
-            ("you are now", "Possible prompt injection (role switch)", "High"),
-            ("curl ", "External network request", "Low"),
-            ("wget ", "External network request", "Low"),
-        ];
-
-        for event in &events {
-            let payload_str = serde_json::to_string(&event.payload).unwrap_or_default();
-            let payload_lower = payload_str.to_lowercase();
-
-            for (pattern, description, severity) in &payload_patterns {
-                if payload_lower.contains(&pattern.to_lowercase()) {
-                    findings.push(format!("[{}] {} — {} (event #{}, {})",
-                        severity, description,
-                        event.ts.format("%Y-%m-%d %H:%M:%S"),
-                        event.event_id.0,
-                        truncate(&payload_str, 200)));
-                }
-            }
-        }
-
-        let mut out = format!("Security Scan Results ({} events scanned)\n\n", events.len());
-
-        if findings.is_empty() {
-            out.push_str("No suspicious patterns detected.\n");
-        } else {
-            out.push_str(&format!("{} findings:\n\n", findings.len()));
-            for finding in &findings {
-                out.push_str(&format!("  {}\n\n", finding));
-            }
-        }
-
-        text_result(out)
+        let report = crate::security::scan_events(&events);
+        text_result(report.to_text())
     }
 
     #[tool(description = "Verify hash chain integrity of the Clawprint recording ledger. Detects any tampering or corruption")]
