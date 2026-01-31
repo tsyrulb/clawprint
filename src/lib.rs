@@ -3,7 +3,6 @@
 //! A tamper-evident audit and replay system for agent actions.
 //! Tagline: "Show the Clawprint" / "Receipts for agent actions"
 
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
@@ -116,7 +115,11 @@ impl Event {
         event
     }
 
-    /// Compute SHA256 hash of canonical event representation
+    /// Compute SHA256 hash of canonical event representation.
+    ///
+    /// Panics if the canonical form cannot be serialized to JSON,
+    /// since silent fallback would produce identical hashes for
+    /// different events and break chain integrity.
     pub fn compute_hash(&self) -> String {
         // Create canonical representation without hash fields
         let canonical = CanonicalEvent {
@@ -132,9 +135,10 @@ impl Event {
             hash_prev: self.hash_prev.clone(),
         };
 
-        // Serialize to canonical JSON
-        let json = serde_json::to_string(&canonical).unwrap_or_default();
-        
+        // Serialize to canonical JSON - must not silently default
+        let json = serde_json::to_string(&canonical)
+            .expect("canonical event must be JSON-serializable");
+
         // Compute hash
         let mut hasher = Sha256::new();
         hasher.update(json.as_bytes());

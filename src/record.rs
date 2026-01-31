@@ -2,8 +2,7 @@
 //!
 //! Coordinates gateway connection, event processing, and storage.
 
-use anyhow::{anyhow, Context, Result};
-use std::path::Path;
+use anyhow::Result;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};

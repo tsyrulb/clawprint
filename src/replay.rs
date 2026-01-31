@@ -2,12 +2,12 @@
 //!
 //! Replays a recorded run timeline without contacting gateway.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use std::path::Path;
 use tracing::{info, warn};
 
 use crate::storage::RunStorage;
-use crate::{Event, EventKind, RunId};
+use crate::{EventKind, RunId};
 
 /// Replay a recorded run
 pub fn replay_run(run_id: &RunId, base_path: &Path, offline: bool) -> Result<ReplayResult> {

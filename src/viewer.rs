@@ -13,7 +13,6 @@ use axum::{
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 use tower_http::services::ServeDir;
 use tracing::info;
 
@@ -67,6 +66,12 @@ async fn index_handler(State(state): State<ViewerState>) -> impl IntoResponse {
                 })
                 .unwrap_or_else(|| "in progress".to_string());
 
+            let id_escaped = escape_html(&run_id.0);
+            let id_short = if run_id.0.len() >= 8 {
+                escape_html(&run_id.0[..8])
+            } else {
+                id_escaped.clone()
+            };
             format!(
                 r#"<div class="run-card">
                     <h3><a href="/view/{}">{}</a></h3>
@@ -76,8 +81,8 @@ async fn index_handler(State(state): State<ViewerState>) -> impl IntoResponse {
                         <span>Events: {}</span>
                     </div>
                 </div>"#,
-                run_id.0,
-                run_id.0[..8].to_string(),
+                id_escaped,
+                id_short,
                 meta.started_at.format("%Y-%m-%d %H:%M:%S"),
                 duration,
                 meta.event_count
@@ -292,6 +297,14 @@ async fn export_run_handler(
     }
 }
 
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
 fn format_event_card(event: &Event) -> String {
     let kind_class = format!("{:?}", event.kind);
     let payload_preview = serde_json::to_string_pretty(&event.payload)
@@ -301,20 +314,26 @@ fn format_event_card(event: &Event) -> String {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let hash_prefix = if event.hash_self.len() >= 16 {
+        &event.hash_self[..16]
+    } else {
+        &event.hash_self
+    };
+
     format!(
         r#"<div class="event {}">
             <div class="meta">
-                <span class="kind">{}</span> | 
-                <span>{}</span> | 
+                <span class="kind">{}</span> |
+                <span>{}</span> |
                 <span class="hash">{}</span>
             </div>
             <pre>{}</pre>
         </div>"#,
-        kind_class,
-        kind_class,
+        escape_html(&kind_class),
+        escape_html(&kind_class),
         event.ts.format("%H:%M:%S%.3f"),
-        &event.hash_self[..16],
-        payload_preview
+        escape_html(hash_prefix),
+        escape_html(&payload_preview)
     )
 }
 

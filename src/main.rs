@@ -6,7 +6,7 @@
 //!   clawprint view --run <run_id> [--open]
 //!   clawprint replay --run <run_id> --offline
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 use tracing::{info, warn};

@@ -4,7 +4,6 @@
 
 use regex::Regex;
 use serde_json::Value;
-use std::collections::HashSet;
 
 /// Fields that should always be redacted
 const SENSITIVE_FIELDS: &[&str] = &[
@@ -39,12 +38,14 @@ lazy_static::lazy_static! {
     ).unwrap();
     
     static ref API_KEY_PATTERNS: Vec<Regex> = vec![
-        // AWS keys
+        // AWS Access Key IDs
         Regex::new(r"AKIA[0-9A-Z]{16}").unwrap(),
-        // Generic hex keys (32+ chars)
-        Regex::new(r"[a-f0-9]{32,}").unwrap(),
-        // Base64 long strings (likely keys)
-        Regex::new(r"[A-Za-z0-9+/]{40,}={0,2}").unwrap(),
+        // AWS Secret Keys (40-char base64 after known prefixes)
+        Regex::new(r"(?i)(?:aws_secret_access_key|secret_key)\s*[:=]\s*[A-Za-z0-9+/]{40}").unwrap(),
+        // GitHub personal access tokens
+        Regex::new(r"ghp_[A-Za-z0-9]{36}").unwrap(),
+        // Slack tokens
+        Regex::new(r"xox[bprs]-[A-Za-z0-9\-]+").unwrap(),
     ];
 }
 
@@ -151,9 +152,10 @@ mod tests {
 
     #[test]
     fn test_redact_string() {
-        let s = "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature";
+        // Use a properly-formatted JWT (all three segments start with base64 of JSON)
+        let s = "Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc123";
         let redacted = redact_string(s);
-        assert!(redacted.contains("[REDACTED-JWT]") || redacted.contains("[REDACTED]"));
+        assert!(redacted.contains("[REDACTED-JWT]"), "JWT should be redacted, got: {}", redacted);
     }
 
     #[test]

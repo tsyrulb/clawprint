@@ -3,9 +3,9 @@
 //! Uses SQLite for events + filesystem for compressed artifacts.
 //! Implements hash chain verification.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -35,8 +35,7 @@ impl RunStorage {
         let db = Connection::open(&db_path)?;
 
         // Enable WAL mode for better concurrent performance
-        db.execute("PRAGMA journal_mode=WAL", [])?;
-        db.execute("PRAGMA synchronous=NORMAL", [])?;
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")?;
 
         // Create tables
         db.execute(
@@ -116,14 +115,23 @@ impl RunStorage {
         })
     }
 
-    /// Write event to storage
-    pub fn write_event(&mut self, event: Event) -> Result<()> {
+    /// Write event to storage, chaining it to the previous event's hash
+    pub fn write_event(&mut self, mut event: Event) -> Result<()> {
+        // Determine the previous hash: from the last buffered event, or from storage
+        let prev_hash = self.batch_buffer.last()
+            .map(|e| e.hash_self.clone())
+            .or_else(|| self.last_hash.clone());
+
+        // Set the chain link and recompute hash
+        event.hash_prev = prev_hash;
+        event.hash_self = event.compute_hash();
+
         self.batch_buffer.push(event);
-        
+
         if self.batch_buffer.len() >= self.batch_size {
             self.flush()?;
         }
-        
+
         Ok(())
     }
 
@@ -136,14 +144,18 @@ impl RunStorage {
         let tx = self.db.transaction()?;
         
         for event in &self.batch_buffer {
+            let kind_str = serde_json::to_string(&event.kind)
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_owned();
             tx.execute(
-                "INSERT INTO events 
+                "INSERT INTO events
                  (event_id, ts, kind, span_id, parent_span_id, actor, payload, artifact_refs, hash_prev, hash_self)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     event.event_id.0 as i64,
                     event.ts.to_rfc3339(),
-                    format!("{:?}", event.kind),
+                    kind_str,
                     event.span_id,
                     event.parent_span_id,
                     event.actor,
@@ -165,8 +177,12 @@ impl RunStorage {
         Ok(())
     }
 
-    /// Store artifact (compressed)
+    /// Store artifact (compressed with zstd, content-addressed by SHA-256)
     pub fn store_artifact(&self, data: &[u8]) -> Result<String> {
+        if data.is_empty() {
+            return Err(anyhow!("Cannot store empty artifact"));
+        }
+
         // Compute hash
         use sha2::{Sha256, Digest};
         let hash = {
@@ -175,7 +191,7 @@ impl RunStorage {
             hex::encode(hasher.finalize())
         };
 
-        // Check if already exists
+        // Check if already exists (hash is always 64 hex chars)
         let prefix = &hash[..2];
         let artifact_dir = self.base_path.join("artifacts").join(prefix);
         let artifact_path = artifact_dir.join(format!("{}.zst", &hash));
@@ -197,8 +213,12 @@ impl RunStorage {
         Ok(hash)
     }
 
-    /// Retrieve artifact
+    /// Retrieve artifact and verify its hash
     pub fn get_artifact(&self, hash: &str) -> Result<Vec<u8>> {
+        if hash.len() < 2 {
+            return Err(anyhow!("Invalid artifact hash: too short"));
+        }
+
         let prefix = &hash[..2];
         let artifact_path = self.base_path
             .join("artifacts")
@@ -211,7 +231,21 @@ impl RunStorage {
 
         let compressed = fs::read(&artifact_path)?;
         let data = zstd::decode_all(&compressed[..])?;
-        
+
+        // Verify integrity: recompute hash and compare
+        use sha2::{Sha256, Digest};
+        let actual_hash = {
+            let mut hasher = Sha256::new();
+            hasher.update(&data);
+            hex::encode(hasher.finalize())
+        };
+        if actual_hash != hash {
+            return Err(anyhow!(
+                "Artifact integrity check failed: expected {} got {}",
+                hash, actual_hash
+            ));
+        }
+
         Ok(data)
     }
 
@@ -237,7 +271,10 @@ impl RunStorage {
             let hash_self: String = row.get(9)?;
 
             let ts = DateTime::parse_from_rfc3339(&ts_str)
-                .unwrap_or_else(|_| Utc::now().into())
+                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                    1, rusqlite::types::Type::Text,
+                    Box::new(e),
+                ))?
                 .with_timezone(&Utc);
             
             let kind = match kind_str.as_str() {
