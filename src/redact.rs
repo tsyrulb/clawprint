@@ -31,7 +31,7 @@ const SENSITIVE_FIELDS: &[&str] = &[
     "x-auth-token",
 ];
 
-/// Patterns for detecting secrets in strings
+// Patterns for detecting secrets in strings
 lazy_static::lazy_static! {
     static ref JWT_PATTERN: Regex = Regex::new(
         r"eyJ[a-zA-Z0-9_-]*\.eyJ[a-zA-Z0-9_-]*\.[a-zA-Z0-9_-]*"

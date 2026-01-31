@@ -6,7 +6,7 @@ use anyhow::{anyhow, Result};
 use std::path::Path;
 use tracing::{info, warn};
 
-use crate::storage::RunStorage;
+use crate::storage::{verify_event_chain, RunStorage};
 use crate::{EventKind, RunId};
 
 /// Replay a recorded run
@@ -20,8 +20,8 @@ pub fn replay_run(run_id: &RunId, base_path: &Path, offline: bool) -> Result<Rep
         return Err(anyhow!("No events in run"));
     }
 
-    // Verify chain integrity first
-    if !storage.verify_chain()? {
+    // Verify chain integrity from already-loaded events (avoids double load)
+    if !verify_event_chain(&events)? {
         warn!("Hash chain verification failed - replay may be tampered");
     }
 
@@ -170,7 +170,7 @@ mod tests {
         let run_id = RunId::new();
         
         // Create empty run
-        let storage = crate::storage::RunStorage::new(
+        let _storage = crate::storage::RunStorage::new(
             run_id.clone(),
             temp_dir.path(),
             10

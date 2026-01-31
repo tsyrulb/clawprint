@@ -169,10 +169,11 @@ impl RunStorage {
             self.event_count += 1;
         }
 
+        let flushed = self.batch_buffer.len();
         tx.commit()?;
         self.batch_buffer.clear();
-        
-        debug!("Flushed {} events to storage", self.event_count);
+
+        debug!("Flushed {} events to storage (total: {})", flushed, self.event_count);
         
         Ok(())
     }
@@ -290,8 +291,16 @@ impl RunStorage {
                 _ => EventKind::Custom,
             };
 
-            let payload: serde_json::Value = serde_json::from_str(&payload_str).unwrap_or_default();
-            let artifact_refs: Vec<String> = serde_json::from_str(&artifact_refs_str).unwrap_or_default();
+            let payload: serde_json::Value = serde_json::from_str(&payload_str)
+                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                    6, rusqlite::types::Type::Text,
+                    Box::new(e),
+                ))?;
+            let artifact_refs: Vec<String> = serde_json::from_str(&artifact_refs_str)
+                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                    7, rusqlite::types::Type::Text,
+                    Box::new(e),
+                ))?;
 
             Ok(Event {
                 run_id: self.run_id.clone(),
@@ -316,30 +325,7 @@ impl RunStorage {
     /// Verify hash chain integrity
     pub fn verify_chain(&self) -> Result<bool> {
         let events = self.load_events(None)?;
-        
-        if events.is_empty() {
-            return Ok(true);
-        }
-
-        for (i, event) in events.iter().enumerate() {
-            // Verify event's own hash
-            if !event.verify() {
-                warn!("Event {} failed hash verification", event.event_id.0);
-                return Ok(false);
-            }
-
-            // Verify chain linkage (except first event)
-            if i > 0 {
-                let prev_hash = &events[i - 1].hash_self;
-                if event.hash_prev.as_ref() != Some(prev_hash) {
-                    warn!("Event {} has broken chain link", event.event_id.0);
-                    return Ok(false);
-                }
-            }
-        }
-
-        info!("Hash chain verified for {} events", events.len());
-        Ok(true)
+        verify_event_chain(&events)
     }
 
     /// Get root hash (hash of last event)
@@ -395,6 +381,32 @@ pub fn list_runs(base_path: &Path) -> Result<Vec<(RunId, RunMeta)>> {
     runs.sort_by(|a, b| b.1.started_at.cmp(&a.1.started_at));
     
     Ok(runs)
+}
+
+/// Verify hash chain integrity on a slice of events.
+/// Returns Ok(true) if valid, Ok(false) if tampered.
+pub fn verify_event_chain(events: &[crate::Event]) -> Result<bool> {
+    if events.is_empty() {
+        return Ok(true);
+    }
+
+    for (i, event) in events.iter().enumerate() {
+        if !event.verify() {
+            warn!("Event {} failed hash verification", event.event_id.0);
+            return Ok(false);
+        }
+
+        if i > 0 {
+            let prev_hash = &events[i - 1].hash_self;
+            if event.hash_prev.as_ref() != Some(prev_hash) {
+                warn!("Event {} has broken chain link", event.event_id.0);
+                return Ok(false);
+            }
+        }
+    }
+
+    info!("Hash chain verified for {} events", events.len());
+    Ok(true)
 }
 
 #[cfg(test)]

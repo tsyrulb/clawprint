@@ -240,7 +240,7 @@ async fn view_run_handler(
     </div>
 </body>
 </html>"#,
-        run_id_clone, run_id_clone, run_id, events_html
+        escape_html(&run_id_clone), escape_html(&run_id_clone), escape_html(&run_id), events_html
     ))
 }
 
@@ -286,7 +286,7 @@ async fn export_run_handler(
     </div>
 </body>
 </html>"#,
-                    run_id.0, run_id.0, chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"), events_html
+                    escape_html(&run_id.0), escape_html(&run_id.0), chrono::Utc::now().format("%Y-%m-%d %H:%M:%S"), events_html
                 );
 
                 ([("content-type", "text/html")], report).into_response()

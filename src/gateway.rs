@@ -112,16 +112,15 @@ impl GatewayClient {
         let challenge = timeout(Duration::from_secs(10), self.recv_frame()).await
             .map_err(|_| anyhow!("Handshake timeout waiting for connect.challenge"))??;
 
-        let nonce = match &challenge {
+        match &challenge {
             IncomingFrame::Event { event, payload, .. } if event == "connect.challenge" => {
                 let nonce = payload.get("nonce")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow!("connect.challenge missing nonce"))?;
+                    .unwrap_or("(none)");
                 info!("Received challenge, nonce: {}", nonce);
-                nonce.to_string()
             }
             other => return Err(anyhow!("Expected connect.challenge, got: {:?}", other)),
-        };
+        }
 
         // Step 2: send connect request with auth
         let req_id = uuid::Uuid::new_v4().to_string();
