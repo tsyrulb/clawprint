@@ -5,16 +5,19 @@
 //!   clawprint list --out ./clawprints
 //!   clawprint view --run <run_id> [--open]
 //!   clawprint replay --run <run_id> --offline
+//!   clawprint stats --run <run_id>
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use owo_colors::OwoColorize;
+use std::io::Write as _;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
 use clawprint::{
     record::RecordingSession,
     replay::{diff_runs, replay_run, generate_transcript},
-    storage::list_runs,
+    storage::{list_runs_with_stats, RunStorage},
     viewer::start_viewer,
     Config, RunId,
 };
@@ -108,6 +111,43 @@ enum Commands {
         #[arg(short, long, default_value = "./clawprints")]
         out: PathBuf,
     },
+    /// Show run statistics
+    Stats {
+        /// Run ID to analyze
+        #[arg(short, long)]
+        run: String,
+        /// Output directory
+        #[arg(short, long, default_value = "./clawprints")]
+        out: PathBuf,
+    },
+}
+
+fn format_duration(secs: i64) -> String {
+    let hours = secs / 3600;
+    let mins = (secs % 3600) / 60;
+    let s = secs % 60;
+    if hours > 0 {
+        format!("{}h {}m {}s", hours, mins, s)
+    } else if mins > 0 {
+        format!("{}m {}s", mins, s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
 }
 
 /// Try to read the gateway auth token from ~/.openclaw/openclaw.json
@@ -141,7 +181,6 @@ async fn main() -> Result<()> {
             no_redact,
             batch_size,
         } => {
-            // Resolve auth token: CLI flag > auto-discovery
             let auth_token = match token {
                 Some(t) => {
                     info!("Using token from --token flag");
@@ -190,40 +229,68 @@ async fn main() -> Result<()> {
         }
 
         Commands::List { out } => {
-            let runs = list_runs(&out)?;
+            let runs = list_runs_with_stats(&out)?;
 
             if runs.is_empty() {
-                println!("No recorded runs found in {:?}", out);
+                println!("{}", "No recorded runs found.".yellow());
                 return Ok(());
             }
 
-            println!("Recorded runs in {:?}:\n", out);
-            println!("{:<12} {:<20} {:<12} {:<10}", "Run ID", "Started", "Duration", "Events");
-            println!("{}", "-".repeat(60));
+            println!("\n  {}\n", "Clawprint Recordings".bright_cyan().bold());
+            println!(
+                "  {:<14} {:<20} {:<14} {:>8}  {:>10}",
+                "RUN ID".bold().dimmed(),
+                "STARTED".bold().dimmed(),
+                "DURATION".bold().dimmed(),
+                "EVENTS".bold().dimmed(),
+                "SIZE".bold().dimmed(),
+            );
+            println!("  {}", "─".repeat(70).dimmed());
 
-            for (run_id, meta) in runs {
-                let duration = meta
+            let mut total_events: u64 = 0;
+            let mut total_size: u64 = 0;
+
+            for (run_id, meta, size) in &runs {
+                let dur = meta
                     .ended_at
                     .map(|end| {
-                        let dur = end.signed_duration_since(meta.started_at);
-                        format!("{}s", dur.num_seconds())
+                        let d = end.signed_duration_since(meta.started_at);
+                        format_duration(d.num_seconds())
                     })
-                    .unwrap_or_else(|| "-".to_string());
+                    .unwrap_or_else(|| "recording...".to_string());
 
+                total_events += meta.event_count;
+                total_size += size;
+
+                let id_short = &run_id.0[..8.min(run_id.0.len())];
                 println!(
-                    "{:<12} {:<20} {:<12} {:<10}",
-                    &run_id.0[..8.min(run_id.0.len())],
-                    meta.started_at.format("%Y-%m-%d %H:%M:%S"),
-                    duration,
-                    meta.event_count
+                    "  {:<14} {:<20} {:<14} {:>8}  {:>10}",
+                    id_short.bright_blue(),
+                    meta.started_at.format("%Y-%m-%d %H:%M:%S").to_string().dimmed(),
+                    dur.green(),
+                    meta.event_count.to_string().cyan(),
+                    format_bytes(*size).dimmed(),
                 );
             }
+
+            println!("  {}", "─".repeat(70).dimmed());
+            println!(
+                "  {} runs  {}  {}\n",
+                runs.len().to_string().bold(),
+                format!("{} events", total_events).cyan(),
+                format_bytes(total_size).dimmed(),
+            );
         }
 
         Commands::View { run, out, open, port } => {
             let run_id = RunId(run);
-            info!("Starting viewer for run: {}", run_id.0);
-            info!("Open http://127.0.0.1:{}/view/{} in your browser", port, run_id.0);
+            let id_short = &run_id.0[..8.min(run_id.0.len())];
+            println!(
+                "\n  {} Viewer for run {}\n  {}\n",
+                "Clawprint".bright_cyan().bold(),
+                id_short.bright_blue(),
+                format!("http://127.0.0.1:{}", port).underline(),
+            );
 
             if open {
                 let url = format!("http://127.0.0.1:{}/view/{}", port, run_id.0);
@@ -242,7 +309,11 @@ async fn main() -> Result<()> {
 
             if let Some(export_path) = export {
                 std::fs::write(&export_path, &transcript)?;
-                info!("Transcript exported to: {:?}", export_path);
+                println!(
+                    "  {} Transcript exported to {:?}",
+                    "OK".green().bold(),
+                    export_path,
+                );
             } else {
                 println!("{}", transcript);
             }
@@ -260,28 +331,101 @@ async fn main() -> Result<()> {
 
         Commands::Verify { run, out } => {
             let run_id = RunId(run);
-
-            use clawprint::storage::RunStorage;
             let storage = RunStorage::open(run_id.clone(), &out)?;
 
-            print!("Verifying hash chain for {}... ", run_id.0);
+            let id_short = &run_id.0[..8.min(run_id.0.len())];
+            print!("  Verifying hash chain for {}... ", id_short.bright_blue());
+            std::io::stdout().flush()?;
 
             match storage.verify_chain() {
                 Ok(true) => {
-                    println!("VALID");
-                    println!("Events: {}", storage.event_count());
-                    println!("Root hash: {}", storage.root_hash().unwrap_or_default());
+                    println!("{}", "VALID".green().bold());
+                    println!("  Events:    {}", storage.event_count().to_string().cyan());
+                    println!("  Root hash: {}", storage.root_hash().unwrap_or_default().dimmed());
                 }
                 Ok(false) => {
-                    println!("TAMPERED");
-                    warn!("Hash chain verification failed - run may have been modified");
+                    println!("{}", "TAMPERED".red().bold());
+                    eprintln!("  {}", "Hash chain verification failed - run may have been modified".red());
                     std::process::exit(1);
                 }
                 Err(e) => {
-                    println!("ERROR: {}", e);
+                    println!("{}: {}", "ERROR".red().bold(), e);
                     std::process::exit(1);
                 }
             }
+        }
+
+        Commands::Stats { run, out } => {
+            let run_id = RunId(run);
+            let storage = RunStorage::open(run_id.clone(), &out)?;
+
+            let id_short = &run_id.0[..8.min(run_id.0.len())];
+            println!(
+                "\n  {} Run {}\n",
+                "Statistics".bright_cyan().bold(),
+                id_short.bright_blue(),
+            );
+
+            // Event breakdown
+            let breakdown = storage.event_count_by_kind()?;
+            let total: u64 = breakdown.values().sum();
+
+            println!("  {}", "Event Breakdown".bold());
+            println!("  {}", "─".repeat(50).dimmed());
+
+            let mut sorted: Vec<_> = breakdown.iter().collect();
+            sorted.sort_by(|a, b| b.1.cmp(a.1));
+
+            let max_count = sorted.first().map(|(_, c)| **c).unwrap_or(1);
+
+            for (kind, count) in &sorted {
+                let pct = (**count as f64 / total as f64) * 100.0;
+                let bar_len = ((**count as f64 / max_count as f64) * 25.0) as usize;
+                let bar: String = "█".repeat(bar_len);
+                println!(
+                    "  {:<16} {:>6} ({:>5.1}%) {}",
+                    kind.cyan(),
+                    count.to_string().bright_white(),
+                    pct,
+                    bar.green(),
+                );
+            }
+            println!("  {:<16} {:>6}", "TOTAL".bold(), total.to_string().bright_white().bold());
+
+            // Agent runs
+            let agent_runs = storage.agent_run_ids()?;
+            println!(
+                "\n  {}: {}",
+                "Agent Runs".bold(),
+                agent_runs.len().to_string().cyan(),
+            );
+
+            // Timeline
+            let timeline = storage.events_timeline()?;
+            if !timeline.is_empty() {
+                println!("\n  {}", "Events per Minute".bold());
+                println!("  {}", "─".repeat(50).dimmed());
+
+                let max_rate = timeline.iter().map(|(_, c)| *c).max().unwrap_or(1);
+                for (minute, count) in &timeline {
+                    let bar_len = ((*count as f64 / max_rate as f64) * 30.0) as usize;
+                    let bar: String = "▓".repeat(bar_len);
+                    println!(
+                        "  {} {:>5} {}",
+                        minute.dimmed(),
+                        count.to_string().bright_white(),
+                        bar.bright_blue(),
+                    );
+                }
+            }
+
+            // Storage
+            let size = storage.storage_size_bytes()?;
+            println!(
+                "\n  {}: {}\n",
+                "Storage Size".bold(),
+                format_bytes(size).cyan(),
+            );
         }
     }
 

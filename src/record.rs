@@ -3,6 +3,8 @@
 //! Coordinates gateway connection, event processing, and storage.
 
 use anyhow::Result;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, Mutex};
@@ -148,12 +150,33 @@ async fn recording_loop(
     let mut flush_interval = interval(Duration::from_millis(config.flush_interval_ms));
     let redact = config.redact_secrets;
 
+    // Progress spinner on stderr
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} [{elapsed_precise}] {msg}")
+            .unwrap()
+    );
+    pb.enable_steady_tick(Duration::from_millis(100));
+
+    let event_count_shared = Arc::new(AtomicU64::new(1));
+    let last_kind = Arc::new(Mutex::new("RUN_START".to_string()));
+
     loop {
         tokio::select! {
             msg = event_rx.recv() => {
                 match msg {
                     Some(gw_event) => {
                         debug!("Gateway event: {} (seq={:?})", gw_event.event, gw_event.seq);
+
+                        let kind_name = match gw_event.event.as_str() {
+                            "agent" => "AGENT_EVENT",
+                            "chat" => "OUTPUT_CHUNK",
+                            "tick" => "TICK",
+                            "presence" => "PRESENCE",
+                            "shutdown" => "SHUTDOWN",
+                            _ => "CUSTOM",
+                        };
 
                         let event = gateway_event_to_event(
                             &run_id,
@@ -170,9 +193,15 @@ async fn recording_loop(
                         }
 
                         event_counter += 1;
+                        let count = event_count_shared.fetch_add(1, Ordering::Relaxed) + 1;
+                        *last_kind.lock().await = kind_name.to_string();
+
+                        pb.set_message(format!(
+                            "{} events captured | Last: {}",
+                            count, kind_name
+                        ));
                     }
                     None => {
-                        // Gateway channel closed — gateway disconnected
                         warn!("Gateway connection lost");
                         break;
                     }
@@ -193,6 +222,8 @@ async fn recording_loop(
         }
     }
 
+    pb.finish_and_clear();
+
     // Write RUN_END event
     let end_event = Event::new(
         run_id.clone(),
@@ -202,7 +233,7 @@ async fn recording_loop(
             "conn_id": conn_id,
             "total_events": event_counter,
         }),
-        None, // hash_prev set by storage.write_event
+        None,
     );
 
     {

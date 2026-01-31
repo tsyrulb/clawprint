@@ -6,6 +6,7 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -253,68 +254,15 @@ impl RunStorage {
     /// Load events from storage
     pub fn load_events(&self, limit: Option<usize>) -> Result<Vec<Event>> {
         let mut stmt = self.db.prepare(
-            "SELECT event_id, ts, kind, span_id, parent_span_id, actor, 
+            "SELECT event_id, ts, kind, span_id, parent_span_id, actor,
                     payload, artifact_refs, hash_prev, hash_self
              FROM events ORDER BY event_id"
         )?;
 
         let limit = limit.unwrap_or(usize::MAX);
+        let run_id = self.run_id.clone();
         let events = stmt.query_map([], |row| {
-            let event_id: i64 = row.get(0)?;
-            let ts_str: String = row.get(1)?;
-            let kind_str: String = row.get(2)?;
-            let span_id: Option<String> = row.get(3)?;
-            let parent_span_id: Option<String> = row.get(4)?;
-            let actor: Option<String> = row.get(5)?;
-            let payload_str: String = row.get(6)?;
-            let artifact_refs_str: String = row.get(7)?;
-            let hash_prev: Option<String> = row.get(8)?;
-            let hash_self: String = row.get(9)?;
-
-            let ts = DateTime::parse_from_rfc3339(&ts_str)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                    1, rusqlite::types::Type::Text,
-                    Box::new(e),
-                ))?
-                .with_timezone(&Utc);
-            
-            let kind = match kind_str.as_str() {
-                "RUN_START" => EventKind::RunStart,
-                "RUN_END" => EventKind::RunEnd,
-                "AGENT_EVENT" => EventKind::AgentEvent,
-                "TOOL_CALL" => EventKind::ToolCall,
-                "TOOL_RESULT" => EventKind::ToolResult,
-                "OUTPUT_CHUNK" => EventKind::OutputChunk,
-                "PRESENCE" => EventKind::Presence,
-                "TICK" => EventKind::Tick,
-                "SHUTDOWN" => EventKind::Shutdown,
-                _ => EventKind::Custom,
-            };
-
-            let payload: serde_json::Value = serde_json::from_str(&payload_str)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                    6, rusqlite::types::Type::Text,
-                    Box::new(e),
-                ))?;
-            let artifact_refs: Vec<String> = serde_json::from_str(&artifact_refs_str)
-                .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
-                    7, rusqlite::types::Type::Text,
-                    Box::new(e),
-                ))?;
-
-            Ok(Event {
-                run_id: self.run_id.clone(),
-                event_id: EventId(event_id as u64),
-                ts,
-                kind,
-                span_id,
-                parent_span_id,
-                actor,
-                payload,
-                artifact_refs,
-                hash_prev,
-                hash_self,
-            })
+            Self::row_to_event(row, &run_id)
         })?
         .take(limit)
         .collect::<Result<Vec<_>, _>>()?;
@@ -354,6 +302,179 @@ impl RunStorage {
     pub fn run_path(&self) -> &Path {
         &self.base_path
     }
+
+    /// Get event count grouped by kind
+    pub fn event_count_by_kind(&self) -> Result<HashMap<String, u64>> {
+        let mut stmt = self.db.prepare(
+            "SELECT kind, COUNT(*) FROM events GROUP BY kind ORDER BY COUNT(*) DESC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+        })?;
+        let mut map = HashMap::new();
+        for row in rows {
+            let (kind, count) = row?;
+            map.insert(kind, count);
+        }
+        Ok(map)
+    }
+
+    /// Load events with optional kind filter, text search, and pagination.
+    /// Returns (events, total_matching_count).
+    pub fn load_events_filtered(
+        &self,
+        kind_filter: Option<&[&str]>,
+        search: Option<&str>,
+        offset: usize,
+        limit: usize,
+    ) -> Result<(Vec<Event>, u64)> {
+        let mut where_clauses = Vec::new();
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(kinds) = kind_filter {
+            if !kinds.is_empty() {
+                let placeholders: Vec<&str> = kinds.iter().map(|_| "?").collect();
+                where_clauses.push(format!("kind IN ({})", placeholders.join(",")));
+                for k in kinds {
+                    param_values.push(Box::new(k.to_string()));
+                }
+            }
+        }
+
+        if let Some(term) = search {
+            if !term.is_empty() {
+                where_clauses.push("payload LIKE ?".to_string());
+                param_values.push(Box::new(format!("%{}%", term)));
+            }
+        }
+
+        let where_sql = if where_clauses.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", where_clauses.join(" AND "))
+        };
+
+        // Get total count
+        let count_sql = format!("SELECT COUNT(*) FROM events {}", where_sql);
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
+        let total: u64 = self.db.query_row(&count_sql, params_ref.as_slice(), |row| row.get(0))?;
+
+        // Get paginated events
+        let select_sql = format!(
+            "SELECT event_id, ts, kind, span_id, parent_span_id, actor,
+                    payload, artifact_refs, hash_prev, hash_self
+             FROM events {} ORDER BY event_id LIMIT ? OFFSET ?",
+            where_sql
+        );
+        let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        // Re-add filter params
+        if let Some(kinds) = kind_filter {
+            for k in kinds {
+                all_params.push(Box::new(k.to_string()));
+            }
+        }
+        if let Some(term) = search {
+            if !term.is_empty() {
+                all_params.push(Box::new(format!("%{}%", term)));
+            }
+        }
+        all_params.push(Box::new(limit as i64));
+        all_params.push(Box::new(offset as i64));
+
+        let all_ref: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|p| p.as_ref()).collect();
+        let run_id = self.run_id.clone();
+
+        let mut stmt = self.db.prepare(&select_sql)?;
+        let events = stmt.query_map(all_ref.as_slice(), |row| {
+            Self::row_to_event(row, &run_id)
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+        Ok((events, total))
+    }
+
+    /// Get events-per-minute timeline
+    pub fn events_timeline(&self) -> Result<Vec<(String, u64)>> {
+        let mut stmt = self.db.prepare(
+            "SELECT substr(ts, 12, 5) as minute, COUNT(*)
+             FROM events GROUP BY minute ORDER BY minute"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// Get distinct agent run IDs from payload
+    pub fn agent_run_ids(&self) -> Result<Vec<String>> {
+        let mut stmt = self.db.prepare(
+            "SELECT DISTINCT json_extract(payload, '$.data.runId')
+             FROM events
+             WHERE json_extract(payload, '$.data.runId') IS NOT NULL"
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// Get total storage size (ledger + artifacts) in bytes
+    pub fn storage_size_bytes(&self) -> Result<u64> {
+        let mut total: u64 = 0;
+        for entry in walkdir::WalkDir::new(&self.base_path).into_iter().flatten() {
+            if entry.file_type().is_file() {
+                total += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+        Ok(total)
+    }
+
+    /// Parse a single row into an Event (shared by load_events and load_events_filtered)
+    fn row_to_event(row: &rusqlite::Row, run_id: &RunId) -> rusqlite::Result<Event> {
+        let event_id: i64 = row.get(0)?;
+        let ts_str: String = row.get(1)?;
+        let kind_str: String = row.get(2)?;
+        let span_id: Option<String> = row.get(3)?;
+        let parent_span_id: Option<String> = row.get(4)?;
+        let actor: Option<String> = row.get(5)?;
+        let payload_str: String = row.get(6)?;
+        let artifact_refs_str: String = row.get(7)?;
+        let hash_prev: Option<String> = row.get(8)?;
+        let hash_self: String = row.get(9)?;
+
+        let ts = DateTime::parse_from_rfc3339(&ts_str)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                1, rusqlite::types::Type::Text, Box::new(e),
+            ))?
+            .with_timezone(&Utc);
+
+        let kind = match kind_str.as_str() {
+            "RUN_START" => EventKind::RunStart,
+            "RUN_END" => EventKind::RunEnd,
+            "AGENT_EVENT" => EventKind::AgentEvent,
+            "TOOL_CALL" => EventKind::ToolCall,
+            "TOOL_RESULT" => EventKind::ToolResult,
+            "OUTPUT_CHUNK" => EventKind::OutputChunk,
+            "PRESENCE" => EventKind::Presence,
+            "TICK" => EventKind::Tick,
+            "SHUTDOWN" => EventKind::Shutdown,
+            _ => EventKind::Custom,
+        };
+
+        let payload: serde_json::Value = serde_json::from_str(&payload_str)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                6, rusqlite::types::Type::Text, Box::new(e),
+            ))?;
+        let artifact_refs: Vec<String> = serde_json::from_str(&artifact_refs_str)
+            .map_err(|e| rusqlite::Error::FromSqlConversionFailure(
+                7, rusqlite::types::Type::Text, Box::new(e),
+            ))?;
+
+        Ok(Event {
+            run_id: run_id.clone(),
+            event_id: EventId(event_id as u64),
+            ts, kind, span_id, parent_span_id, actor,
+            payload, artifact_refs, hash_prev, hash_self,
+        })
+    }
 }
 
 /// List all recorded runs in a directory
@@ -380,6 +501,38 @@ pub fn list_runs(base_path: &Path) -> Result<Vec<(RunId, RunMeta)>> {
     // Sort by start time descending
     runs.sort_by(|a, b| b.1.started_at.cmp(&a.1.started_at));
     
+    Ok(runs)
+}
+
+/// List all recorded runs with storage size
+pub fn list_runs_with_stats(base_path: &Path) -> Result<Vec<(RunId, RunMeta, u64)>> {
+    let runs_dir = base_path.join("runs");
+    if !runs_dir.exists() {
+        return Ok(vec![]);
+    }
+
+    let mut runs = Vec::new();
+
+    for entry in fs::read_dir(&runs_dir)? {
+        let entry = entry?;
+        let run_path = entry.path();
+        let meta_path = run_path.join("meta.json");
+
+        if meta_path.exists() {
+            let meta_json = fs::read_to_string(&meta_path)?;
+            if let Ok(meta) = serde_json::from_str::<RunMeta>(&meta_json) {
+                let mut size: u64 = 0;
+                for f in walkdir::WalkDir::new(&run_path).into_iter().flatten() {
+                    if f.file_type().is_file() {
+                        size += f.metadata().map(|m| m.len()).unwrap_or(0);
+                    }
+                }
+                runs.push((meta.run_id.clone(), meta, size));
+            }
+        }
+    }
+
+    runs.sort_by(|a, b| b.1.started_at.cmp(&a.1.started_at));
     Ok(runs)
 }
 
