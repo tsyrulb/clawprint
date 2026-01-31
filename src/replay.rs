@@ -84,7 +84,14 @@ pub fn replay_run(run_id: &RunId, base_path: &Path, offline: bool) -> Result<Rep
                     info.end_time = Some(event.ts);
                     info.event_count += 1;
 
-                    // Extract tool calls from agent events
+                    // Extract tool calls from agent events (only tool_use, not tool_result)
+                    let is_tool_use = event
+                        .payload
+                        .pointer("/data/type")
+                        .and_then(|v| v.as_str())
+                        .map(|t| t == "tool_use")
+                        .unwrap_or(false);
+                    if is_tool_use {
                     if let Some(tool) = event
                         .payload
                         .pointer("/data/tool")
@@ -102,6 +109,7 @@ pub fn replay_run(run_id: &RunId, base_path: &Path, offline: bool) -> Result<Rep
                         };
                         info.tool_calls.push(tc.clone());
                         result.tool_calls.push(tc);
+                    }
                     }
                 }
             }
