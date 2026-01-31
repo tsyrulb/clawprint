@@ -7,6 +7,7 @@ A step-by-step guide to installing, configuring, and using Clawprint to record, 
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Try It Without a Gateway (Demo)](#try-it-without-a-gateway-demo)
+- [Using Clawprint with OpenClaw (End-to-End)](#using-clawprint-with-openclaw-end-to-end)
 - [Recording Agent Runs](#recording-agent-runs)
 - [Browsing Recordings](#browsing-recordings)
 - [Web Dashboard](#web-dashboard)
@@ -24,7 +25,8 @@ A step-by-step guide to installing, configuring, and using Clawprint to record, 
 ## Prerequisites
 
 - **Rust toolchain** (1.80+) — install from https://rustup.rs
-- **OpenClaw** running locally (for live recording) — Clawprint connects to its gateway WebSocket
+- **OpenClaw** (for live recording) — install from https://openclaw.bot or `npm install -g openclaw@latest`. Requires Node.js 22+. Not needed for the demo.
+- A browser (for the web dashboard)
 
 ## Installation
 
@@ -76,6 +78,237 @@ This creates a recording in `./clawprints/` with 2 agent conversation runs and 3
 ```
 
 This script builds Clawprint, generates demo data, and automatically runs every command (list, verify, stats, replay, view) so you can see the full workflow.
+
+---
+
+## Using Clawprint with OpenClaw (End-to-End)
+
+This section walks through the complete workflow: installing OpenClaw, starting the gateway, recording a live agent session with Clawprint, and then analysing the results.
+
+### Step 1: Install OpenClaw
+
+If you don't have OpenClaw yet:
+
+```bash
+# Linux / macOS
+curl -fsSL https://openclaw.bot/install.sh | bash
+
+# or via npm
+npm install -g openclaw@latest
+```
+
+Requirements: Node.js 22+. On Windows, use WSL2.
+
+After installing, run the onboarding wizard:
+
+```bash
+openclaw onboard --install-daemon
+```
+
+This sets up your config at `~/.openclaw/openclaw.json`, configures authentication, and optionally installs the background daemon.
+
+### Step 2: Start the OpenClaw gateway
+
+```bash
+openclaw gateway
+```
+
+The gateway starts on `ws://127.0.0.1:18789` by default. Verify it's running:
+
+```bash
+openclaw status
+```
+
+You should see the gateway as active. The gateway dashboard is also available at `http://127.0.0.1:18789/` in your browser.
+
+If you need a different port:
+
+```bash
+openclaw gateway --port 19000
+```
+
+### Step 3: Find your auth token
+
+Clawprint needs the gateway auth token to connect. It's in your OpenClaw config:
+
+```bash
+cat ~/.openclaw/openclaw.json | grep -A2 '"auth"'
+```
+
+Look for the `gateway.auth.token` field. Clawprint auto-discovers this file, so if it exists you don't need to do anything extra.
+
+If you can't find the token, you can pass it explicitly when recording (see Step 5).
+
+### Step 4: Build Clawprint
+
+```bash
+cd clawprint
+cargo build --release
+```
+
+### Step 5: Start recording
+
+Open a **first terminal** and start Clawprint:
+
+```bash
+./target/release/clawprint record \
+  --gateway ws://127.0.0.1:18789 \
+  --out ./clawprints
+```
+
+You'll see a live spinner:
+
+```
+  [00:00:05] 12 events captured | Last: AGENT_EVENT
+```
+
+If you get "No auth token found", either:
+- Check that `~/.openclaw/openclaw.json` has `gateway.auth.token`, or
+- Pass it explicitly: `--token your-token-here`
+
+### Step 6: Use OpenClaw normally
+
+Open a **second terminal** (or use any OpenClaw client — CLI, web chat, mobile app, etc.) and interact with your agent:
+
+```bash
+# Send a message to the agent
+openclaw agent --message "Read the file README.md and summarise it"
+
+# Or start an interactive session
+openclaw agent
+```
+
+Everything the agent does — reading files, running commands, generating responses — flows through the gateway and Clawprint records it all in real time.
+
+You can also use other OpenClaw interfaces (WhatsApp, Telegram, web dashboard, etc.) — Clawprint captures events from all connected clients.
+
+### Step 7: Stop recording
+
+Go back to the **first terminal** (where Clawprint is running) and press **Ctrl+C**.
+
+Clawprint will flush remaining events, compute the root hash, and write the final metadata:
+
+```
+  Recording saved: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+### Step 8: Explore the recording
+
+Now use Clawprint's analysis tools:
+
+```bash
+# List all recordings
+./target/release/clawprint list --out ./clawprints
+
+# Check integrity
+./target/release/clawprint verify --run <run_id> --out ./clawprints
+
+# View statistics
+./target/release/clawprint stats --run <run_id> --out ./clawprints
+
+# Replay offline
+./target/release/clawprint replay --run <run_id> --out ./clawprints --offline
+
+# Open web dashboard
+./target/release/clawprint view --run <run_id> --out ./clawprints --open
+```
+
+### Step 9: Compare runs (optional)
+
+Record a second session, then diff them:
+
+```bash
+./target/release/clawprint diff \
+  --run-a <first_run_id> \
+  --run-b <second_run_id> \
+  --out ./clawprints
+```
+
+### Typical workflow summary
+
+```
+Terminal 1                          Terminal 2
+──────────────────────────          ──────────────────────────
+openclaw gateway                    (gateway running)
+
+clawprint record --out ./clawprints
+  ... spinner shows events ...      openclaw agent --message "do something"
+                                    openclaw agent --message "now do this"
+                                    openclaw agent --message "one more task"
+  Ctrl+C
+  Recording saved: abc123...
+
+clawprint list --out ./clawprints
+clawprint stats --run abc123 --out ./clawprints
+clawprint view  --run abc123 --out ./clawprints --open
+```
+
+### Running on a remote server
+
+If OpenClaw runs on a different machine:
+
+```bash
+# On the server, start gateway bound to its IP (requires --token for security)
+openclaw gateway --bind 0.0.0.0 --token my-secret-token
+
+# On your local machine, point Clawprint at the remote gateway
+clawprint record \
+  --gateway ws://192.168.1.100:18789 \
+  --token my-secret-token \
+  --out ./clawprints
+```
+
+If you use Tailscale/Tailnet:
+
+```bash
+openclaw gateway --bind tailnet --token my-secret-token
+
+clawprint record \
+  --gateway ws://your-machine.tail1234.ts.net:18789 \
+  --token my-secret-token \
+  --out ./clawprints
+```
+
+### Long-running recording
+
+For continuous monitoring, you can run Clawprint as a background service:
+
+```bash
+# Run in background with nohup
+nohup ./target/release/clawprint record \
+  --gateway ws://127.0.0.1:18789 \
+  --out /var/log/clawprints \
+  > /var/log/clawprint-recorder.log 2>&1 &
+
+# Check it's running
+jobs -l
+
+# Stop it later
+kill %1
+```
+
+Or create a systemd service:
+
+```ini
+# /etc/systemd/system/clawprint-recorder.service
+[Unit]
+Description=Clawprint Recorder
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/clawprint record --gateway ws://127.0.0.1:18789 --out /var/log/clawprints
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl enable --now clawprint-recorder
+sudo journalctl -u clawprint-recorder -f
+```
 
 ---
 
