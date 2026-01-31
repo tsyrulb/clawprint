@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 
 pub mod gateway;
+pub mod ledger;
 pub mod record;
 pub mod redact;
 pub mod replay;
