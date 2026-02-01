@@ -1,6 +1,6 @@
-//! Web viewer — cybersecurity dashboard for Clawprint recordings
+//! Web viewer — dashboard for Clawprint recordings
 //!
-//! Serves an interactive dark-themed web interface for browsing events.
+//! Serves an interactive web interface for browsing traces.
 
 use anyhow::Result;
 use axum::{
@@ -149,21 +149,21 @@ async fn index_handler(State(state): State<ViewerState>) -> impl IntoResponse {
             format!(
                 r#"<a href="/view/{id}" class="run-card">
                 <div class="run-card-header">
-                    <code class="run-id">{short}</code>
+                    <span class="run-id">{short}</span>
                     {status}
-                    <span class="lock" title="Hash-chain verified">&#x1f512;</span>
+                    <span class="lock" title="Hash-chain sealed">&#x1f512;</span>
                 </div>
                 <div class="run-meta">
-                    <span><b>Started</b> {started}</span>
-                    <span><b>Duration</b> {dur}</span>
-                    <span><b>Events</b> {events}</span>
-                    <span><b>Size</b> {size}</span>
+                    <span>{started}</span>
+                    <span>{dur}</span>
+                    <span>{events} traces</span>
+                    <span>{size}</span>
                 </div>
             </a>"#,
                 id = id_esc,
                 short = id_short,
                 status = status,
-                started = meta.started_at.format("%Y-%m-%d %H:%M:%S"),
+                started = meta.started_at.format("%b %d, %H:%M"),
                 dur = dur,
                 events = meta.event_count,
                 size = format_bytes(*size),
@@ -302,44 +302,42 @@ const DASHBOARD_HTML: &str = r##"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Clawprint Dashboard</title>
+<title>Clawprint</title>
 <style>
-:root{--bg:#0a0e27;--bg2:#151932;--card:#1a1f3a;--accent:#00d4aa;--red:#ff4757;--orange:#ffa502;--blue:#3498db;--purple:#9b59b6;--text:#e1e8ed;--dim:#8895a7;--border:#2d3561}
+:root{--bg:#fafafa;--card:#fff;--accent:#111;--accent2:#6366f1;--green:#16a34a;--orange:#ea580c;--text:#111;--dim:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--radius:10px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:24px;line-height:1.6}
-.wrap{max-width:1400px;margin:0 auto}
-header{margin-bottom:32px;padding-bottom:20px;border-bottom:2px solid var(--border)}
-h1{font-size:1.8rem;color:var(--accent)}
-header p{color:var(--dim);margin-top:4px}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-bottom:32px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;border-left:4px solid var(--accent)}
-.card-label{font-size:.8rem;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
-.card-value{font-size:2rem;font-weight:700;color:var(--accent)}
-h2{margin-bottom:12px}
-.run-card{display:block;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:18px;margin-bottom:12px;text-decoration:none;color:inherit;transition:border-color .2s,transform .15s}
-.run-card:hover{border-color:var(--accent);transform:translateY(-2px)}
-.run-card-header{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.run-id{color:var(--accent);font-size:1.05rem}
-.badge{padding:3px 10px;border-radius:10px;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
-.badge.complete{background:rgba(0,212,170,.15);color:var(--accent);border:1px solid var(--accent)}
-.badge.progress{background:rgba(255,165,2,.15);color:var(--orange);border:1px solid var(--orange)}
-.lock{font-size:1rem;margin-left:auto}
-.run-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;font-size:.85rem;color:var(--dim)}
-.run-meta b{color:var(--text);margin-right:4px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;background:var(--bg);color:var(--text);padding:40px 24px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto}
+header{margin-bottom:40px}
+h1{font-size:1.5rem;font-weight:700;letter-spacing:-.02em}
+header p{color:var(--dim);font-size:.875rem;margin-top:2px}
+.stats{display:flex;gap:32px;margin-bottom:40px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+.stat-label{font-size:.75rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.stat-value{font-size:1.75rem;font-weight:700;letter-spacing:-.02em}
+h2{font-size:.875rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin-bottom:12px}
+.run-card{display:block;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;margin-bottom:8px;text-decoration:none;color:inherit;transition:background .15s,box-shadow .15s}
+.run-card:hover{background:var(--hover);box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.run-card-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.run-id{font-family:'SF Mono',SFMono-Regular,Menlo,monospace;font-size:.9rem;font-weight:600}
+.badge{padding:2px 8px;border-radius:100px;font-size:.7rem;font-weight:500}
+.badge.complete{background:#dcfce7;color:var(--green)}
+.badge.progress{background:#fff7ed;color:var(--orange)}
+.lock{font-size:.875rem;margin-left:auto;opacity:.4}
+.run-meta{display:flex;gap:24px;font-size:.8rem;color:var(--dim)}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header>
-<h1>Clawprint Dashboard</h1>
-<p>Tamper-evident audit logs for OpenClaw agent activity</p>
+<h1>Clawprint</h1>
+<p>Audit trail for OpenClaw agent activity</p>
 </header>
-<div class="cards">
-<div class="card"><div class="card-label">Total Runs</div><div class="card-value">{{TOTAL_RUNS}}</div></div>
-<div class="card"><div class="card-label">Total Events</div><div class="card-value">{{TOTAL_EVENTS}}</div></div>
-<div class="card"><div class="card-label">Storage</div><div class="card-value">{{TOTAL_SIZE}}</div></div>
+<div class="stats">
+<div><div class="stat-label">Runs</div><div class="stat-value">{{TOTAL_RUNS}}</div></div>
+<div><div class="stat-label">Traces</div><div class="stat-value">{{TOTAL_EVENTS}}</div></div>
+<div><div class="stat-label">Storage</div><div class="stat-value">{{TOTAL_SIZE}}</div></div>
 </div>
-<h2>Recorded Runs</h2>
+<h2>Recorded runs</h2>
 {{RUNS}}
 </div>
 </body>
@@ -351,79 +349,77 @@ const RUN_DETAIL_HTML: &str = r##"<!DOCTYPE html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Run {{RUN_ID}} — Clawprint</title>
 <style>
-:root{--bg:#0a0e27;--bg2:#151932;--card:#1a1f3a;--accent:#00d4aa;--red:#ff4757;--orange:#ffa502;--blue:#3498db;--purple:#9b59b6;--text:#e1e8ed;--dim:#8895a7;--border:#2d3561}
+:root{--bg:#fafafa;--card:#fff;--accent:#111;--accent2:#6366f1;--green:#16a34a;--red:#dc2626;--orange:#ea580c;--blue:#2563eb;--purple:#7c3aed;--text:#111;--dim:#6b7280;--border:#e5e7eb;--hover:#f3f4f6;--code-bg:#f3f4f6;--radius:10px}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:24px;line-height:1.6}
-.wrap{max-width:1400px;margin:0 auto}
-a.back{color:var(--dim);text-decoration:none;display:inline-block;margin-bottom:16px}
-a.back:hover{color:var(--accent)}
-.header{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:20px}
-.header h1{font-size:1.5rem;color:var(--accent);margin-bottom:12px}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
-.stat{padding:10px;background:var(--bg2);border-radius:6px}
-.stat-label{font-size:.75rem;color:var(--dim);text-transform:uppercase}
-.stat-value{font-size:1.3rem;color:var(--accent);font-weight:600}
-.section{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:20px}
-.section h2{font-size:1.1rem;margin-bottom:14px}
-.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:.85rem}
-.bar-label{width:120px;color:var(--dim)}
-.bar-track{flex:1;background:var(--bg2);border-radius:3px;height:22px;position:relative}
-.bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--blue));transition:width .3s}
-.bar-num{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:.75rem;color:#fff;font-weight:600}
-.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
-.fbtn{padding:6px 14px;border:1px solid var(--border);background:var(--bg2);color:var(--dim);border-radius:6px;cursor:pointer;font-size:.8rem;transition:all .15s}
-.fbtn:hover{border-color:var(--accent);color:var(--text)}
-.fbtn.on{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.search{flex:1;min-width:180px;padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:.85rem}
-.search:focus{outline:none;border-color:var(--accent)}
-.events{display:flex;flex-direction:column;gap:8px}
-.ev{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:14px;border-left:4px solid var(--border)}
-.ev.RUN_START{border-left-color:var(--accent)}.ev.RUN_END{border-left-color:var(--red)}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;background:var(--bg);color:var(--text);padding:40px 24px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:960px;margin:0 auto}
+a.back{color:var(--dim);text-decoration:none;font-size:.875rem;display:inline-block;margin-bottom:20px}
+a.back:hover{color:var(--text)}
+.hdr{margin-bottom:28px}
+.hdr h1{font-size:1.25rem;font-weight:700;letter-spacing:-.02em;font-family:'SF Mono',SFMono-Regular,Menlo,monospace}
+.stats{display:flex;gap:32px;margin-bottom:32px;padding-bottom:24px;border-bottom:1px solid var(--border)}
+.stat-label{font-size:.7rem;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
+.stat-value{font-size:1.25rem;font-weight:700}
+.section{margin-bottom:32px}
+.section h2{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--dim);margin-bottom:12px}
+.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:4px;font-size:.8rem}
+.bar-label{width:110px;color:var(--dim);font-family:'SF Mono',SFMono-Regular,Menlo,monospace;font-size:.75rem}
+.bar-track{flex:1;background:var(--border);border-radius:4px;height:8px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;background:var(--accent2);transition:width .3s}
+.bar-num{width:40px;text-align:right;font-size:.75rem;color:var(--dim);font-weight:500}
+.filters{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.fbtn{padding:4px 12px;border:1px solid var(--border);background:var(--card);color:var(--dim);border-radius:100px;cursor:pointer;font-size:.75rem;transition:all .15s}
+.fbtn:hover{border-color:var(--text);color:var(--text)}
+.fbtn.on{background:var(--text);color:#fff;border-color:var(--text)}
+.search{flex:1;min-width:160px;padding:6px 12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:.8rem}
+.search:focus{outline:none;border-color:var(--accent2);box-shadow:0 0 0 3px rgba(99,102,241,.1)}
+.events{display:flex;flex-direction:column;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.ev{background:var(--card);padding:12px 16px;border-left:3px solid var(--border)}
+.ev.RUN_START{border-left-color:var(--green)}.ev.RUN_END{border-left-color:var(--red)}
 .ev.TOOL_CALL{border-left-color:var(--orange)}.ev.TOOL_RESULT{border-left-color:var(--blue)}
 .ev.OUTPUT_CHUNK{border-left-color:var(--blue)}.ev.AGENT_EVENT{border-left-color:var(--purple)}
-.ev.TICK{border-left-color:var(--dim)}.ev.PRESENCE{border-left-color:var(--dim)}
-.ev-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.ev-kind{font-weight:600;font-size:.85rem;font-family:'Courier New',monospace}
-.ev-kind.RUN_START{color:var(--accent)}.ev-kind.RUN_END{color:var(--red)}
+.ev.TICK{border-left-color:var(--border)}.ev.PRESENCE{border-left-color:var(--border)}
+.ev-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+.ev-kind{font-weight:600;font-size:.75rem;font-family:'SF Mono',SFMono-Regular,Menlo,monospace}
+.ev-kind.RUN_START{color:var(--green)}.ev-kind.RUN_END{color:var(--red)}
 .ev-kind.TOOL_CALL{color:var(--orange)}.ev-kind.OUTPUT_CHUNK{color:var(--blue)}
 .ev-kind.AGENT_EVENT{color:var(--purple)}.ev-kind.CUSTOM{color:var(--dim)}
-.ev-ts{font-size:.8rem;color:var(--dim)}
-.ev-hash{font-size:.7rem;color:var(--dim);font-family:monospace;margin-bottom:6px}
-.ev-payload{background:var(--bg2);border-radius:4px;padding:10px;max-height:0;overflow:hidden;transition:max-height .3s ease}
+.ev-ts{font-size:.7rem;color:var(--dim)}
+.ev-hash{font-size:.65rem;color:var(--dim);font-family:'SF Mono',SFMono-Regular,Menlo,monospace;margin-bottom:4px}
+.ev-payload{background:var(--code-bg);border-radius:6px;padding:10px;max-height:0;overflow:hidden;transition:max-height .3s ease}
 .ev-payload.open{max-height:600px;overflow-y:auto}
-.ev-payload pre{margin:0;font-size:.78rem;white-space:pre-wrap;word-break:break-word;color:var(--text)}
-.toggle{background:none;border:none;color:var(--accent);cursor:pointer;font-size:.8rem;padding:0;margin-bottom:4px}
+.ev-payload pre{margin:0;font-size:.75rem;white-space:pre-wrap;word-break:break-word;color:var(--text);font-family:'SF Mono',SFMono-Regular,Menlo,monospace}
+.toggle{background:none;border:none;color:var(--accent2);cursor:pointer;font-size:.75rem;padding:0;margin-bottom:4px}
 .toggle:hover{text-decoration:underline}
-.pager{display:flex;gap:8px;justify-content:center;margin-top:20px}
-.pbtn{padding:6px 14px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;transition:all .15s}
-.pbtn:hover:not(:disabled){border-color:var(--accent)}
-.pbtn.cur{background:var(--accent);color:var(--bg);border-color:var(--accent)}
-.pbtn:disabled{opacity:.4;cursor:not-allowed}
-.loading{text-align:center;padding:40px;color:var(--dim)}
+.pager{display:flex;gap:4px;justify-content:center;margin-top:20px}
+.pbtn{padding:6px 12px;background:var(--card);border:1px solid var(--border);border-radius:6px;color:var(--text);cursor:pointer;font-size:.8rem;transition:all .15s}
+.pbtn:hover:not(:disabled){border-color:var(--text)}
+.pbtn.cur{background:var(--text);color:#fff;border-color:var(--text)}
+.pbtn:disabled{opacity:.3;cursor:not-allowed}
+.loading{text-align:center;padding:40px;color:var(--dim);font-size:.875rem}
 </style>
 </head>
 <body>
 <div class="wrap">
-<a href="/" class="back">&larr; Dashboard</a>
-<div class="header">
-<h1>Run <span id="rid">{{RUN_ID}}</span></h1>
-<div class="stats">
-<div class="stat"><div class="stat-label">Events</div><div class="stat-value" id="s-events">-</div></div>
-<div class="stat"><div class="stat-label">Duration</div><div class="stat-value" id="s-dur">-</div></div>
-<div class="stat"><div class="stat-label">Agent Runs</div><div class="stat-value" id="s-agents">-</div></div>
-<div class="stat"><div class="stat-label">Integrity</div><div class="stat-value" id="s-integrity">-</div></div>
+<a href="/" class="back">&larr; All runs</a>
+<div class="hdr">
+<h1><span id="rid">{{RUN_ID}}</span></h1>
 </div>
+<div class="stats">
+<div><div class="stat-label">Traces</div><div class="stat-value" id="s-events">-</div></div>
+<div><div class="stat-label">Duration</div><div class="stat-value" id="s-dur">-</div></div>
+<div><div class="stat-label">Agent runs</div><div class="stat-value" id="s-agents">-</div></div>
+<div><div class="stat-label">Integrity</div><div class="stat-value" id="s-integrity">-</div></div>
 </div>
 
 <div class="section">
-<h2>Event Breakdown</h2>
+<h2>Breakdown</h2>
 <div id="chart"></div>
 </div>
 
 <div class="section">
-<h2>Events</h2>
+<h2>Traces</h2>
 <div class="filters">
-<span style="color:var(--dim);font-size:.85rem">Filter:</span>
 <button class="fbtn" data-k="AGENT_EVENT">AGENT_EVENT</button>
 <button class="fbtn" data-k="OUTPUT_CHUNK">OUTPUT_CHUNK</button>
 <button class="fbtn" data-k="TOOL_CALL">TOOL_CALL</button>
@@ -431,7 +427,7 @@ a.back:hover{color:var(--accent)}
 <button class="fbtn" data-k="RUN_END">RUN_END</button>
 <button class="fbtn" data-k="TICK">TICK</button>
 <button class="fbtn" data-k="CUSTOM">CUSTOM</button>
-<input class="search" id="q" placeholder="Search payload...">
+<input class="search" id="q" placeholder="Search...">
 </div>
 <div class="events" id="evlist"><div class="loading">Loading...</div></div>
 <div class="pager" id="pager"></div>
@@ -450,8 +446,8 @@ async function init(){
  document.getElementById('s-events').textContent=run.event_count;
  document.getElementById('s-agents').textContent=stats.agent_run_count;
  const si=document.getElementById('s-integrity');
- si.textContent=run.chain_valid?'\u2713 Valid':'\u2717 Invalid';
- si.style.color=run.chain_valid?'var(--accent)':'var(--red)';
+ si.textContent=run.chain_valid?'Sealed':'Compromised';
+ si.style.color=run.chain_valid?'var(--green)':'var(--red)';
  renderChart(stats.event_breakdown);
  loadEvents();
 }
@@ -462,7 +458,7 @@ function renderChart(b){
  const sorted=Object.entries(b).sort((a,c)=>c[1]-a[1]);
  el.innerHTML=sorted.map(([k,v])=>{
   const p=(v/total*100).toFixed(1);
-  return '<div class="bar-row"><div class="bar-label">'+esc(k)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+p+'%"></div><div class="bar-num">'+v+'</div></div></div>';
+  return '<div class="bar-row"><div class="bar-label">'+esc(k)+'</div><div class="bar-track"><div class="bar-fill" style="width:'+p+'%"></div></div><div class="bar-num">'+v+'</div></div>';
  }).join('');
 }
 
@@ -478,7 +474,7 @@ async function loadEvents(){
 
 function renderEvents(evs){
  const el=document.getElementById('evlist');
- if(!evs.length){el.innerHTML='<div class="loading">No events found</div>';return;}
+ if(!evs.length){el.innerHTML='<div class="loading">No traces found</div>';return;}
  el.innerHTML=evs.map(e=>{
   const collapse=e.kind==='TICK'||e.kind==='PRESENCE';
   const ts=new Date(e.ts).toLocaleString();
@@ -487,7 +483,7 @@ function renderEvents(evs){
   return '<div class="ev '+esc(e.kind)+'">'
    +'<div class="ev-head"><span class="ev-kind '+esc(e.kind)+'">'+esc(e.kind)+'</span><span class="ev-ts">'+esc(ts)+'</span></div>'
    +'<div class="ev-hash">'+esc(hash)+'</div>'
-   +'<button class="toggle" onclick="tog(this)">'+(collapse?'Show':'Hide')+' payload</button>'
+   +'<button class="toggle" onclick="tog(this)">'+(collapse?'Show':'Hide')+'</button>'
    +'<div class="ev-payload'+(collapse?'':' open')+'"><pre>'+esc(payload)+'</pre></div>'
    +'</div>';
  }).join('');
@@ -496,7 +492,7 @@ function renderEvents(evs){
 function tog(btn){
  const p=btn.nextElementSibling;
  p.classList.toggle('open');
- btn.textContent=p.classList.contains('open')?'Hide payload':'Show payload';
+ btn.textContent=p.classList.contains('open')?'Hide':'Show';
 }
 
 function renderPager(){
