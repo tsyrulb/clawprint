@@ -57,23 +57,25 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-/// Print the Clawprint crab claw banner with an optional subtitle
+/// Print the Clawprint crab pincer banner with an optional subtitle
 fn print_banner(subtitle: &str) {
+    let art = r#"
+    )       (
+     )     (
+      )   (
+       ) (
+        V
+       ( )
+      (   )
+"#;
+    for line in art.lines() {
+        if !line.is_empty() {
+            cprintln!("{}", line.bright_cyan());
+        }
+    }
     cprintln!(
-        "{}",
-        r#"
-     ___
-    /   \
-   | (o) |
-    \   /
-  ---) (---
- /  / \  \
-|  /   \  |"#
-            .bright_cyan()
-    );
-    cprintln!(
-        "  {} {}  {}\n",
-        "Clawprint".bright_cyan().bold(),
+        "   {} {} ~ {}\n",
+        "clawprint".bright_cyan().bold(),
         format!("v{}", env!("CARGO_PKG_VERSION")).dimmed(),
         subtitle.bright_white(),
     );
@@ -93,7 +95,7 @@ use clawprint::{
 
 #[derive(Parser)]
 #[command(name = "clawprint")]
-#[command(about = "Flight recorder and receipts for OpenClaw agent runs")]
+#[command(about = "Every molt leaves a mark. Trace. Verify. Trust.")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
 struct Cli {
     #[command(subcommand)]
@@ -326,35 +328,35 @@ async fn main() -> Result<()> {
                 flush_interval_ms: 200,
             };
 
-            print_banner("Recording");
-            info!("Gateway: {}", config.gateway_url);
-            info!("Output: {:?}", config.output_dir);
-            info!("Redaction: {}", if config.redact_secrets { "enabled" } else { "disabled" });
+            print_banner("Tracking molt activity");
+            info!("Wire: {}", config.gateway_url);
+            info!("Ledger: {:?}", config.output_dir);
+            info!("Redaction: {}", if config.redact_secrets { "on" } else { "off" });
 
             let session = RecordingSession::start(config, run_name).await?;
             let run_id = session.run_id().clone();
 
-            info!("Recording started: {}", run_id.0);
-            info!("Press Ctrl+C to stop recording...");
+            info!("Tapped into wire — capturing traces ({})", &run_id.0[..8.min(run_id.0.len())]);
+            info!("Ctrl+C to seal the ledger");
 
             tokio::signal::ctrl_c().await?;
 
-            info!("\nStopping recording...");
+            info!("\nSealing ledger...");
             let summary = session.stop().await?;
 
             let id_short = &run_id.0[..8.min(run_id.0.len())];
-            let integrity = if summary.valid { "VALID" } else { "TAMPERED" };
+            let integrity = if summary.valid { "SEALED" } else { "COMPROMISED" };
 
             cprintln!("\n  {} {}\n",
-                "Recording complete:".green().bold(),
+                "Impression captured:".green().bold(),
                 id_short.bright_blue());
-            cprintln!("    Duration: {} | Events: {} | Size: {} | Integrity: {}",
+            cprintln!("    Duration: {} | Traces: {} | Size: {} | Ledger: {}",
                 format_duration(summary.duration_secs),
                 summary.event_count.to_string().cyan(),
                 format_bytes(summary.size_bytes).dimmed(),
                 if summary.valid { integrity.green().to_string() } else { integrity.red().to_string() },
             );
-            cprintln!("\n    {}",  "Next steps:".dimmed());
+            cprintln!("\n    {}",  "Examine the evidence:".dimmed());
             cprintln!("      clawprint stats --run {} --out {:?}", id_short, summary.out_dir);
             cprintln!("      clawprint open  --run {} --out {:?}\n", id_short, summary.out_dir);
         }
@@ -373,7 +375,7 @@ async fn main() -> Result<()> {
                 "RUN ID".bold().dimmed(),
                 "STARTED".bold().dimmed(),
                 "DURATION".bold().dimmed(),
-                "EVENTS".bold().dimmed(),
+                "TRACES".bold().dimmed(),
                 "SIZE".bold().dimmed(),
             );
             cprintln!("  {}", "─".repeat(70).dimmed());
@@ -408,7 +410,7 @@ async fn main() -> Result<()> {
             cprintln!(
                 "  {} runs  {}  {}\n",
                 runs.len().to_string().bold(),
-                format!("{} events", total_events).cyan(),
+                format!("{} traces", total_events).cyan(),
                 format_bytes(total_size).dimmed(),
             );
         }
@@ -488,18 +490,19 @@ async fn main() -> Result<()> {
 
             let id_short = &run_id.0[..8.min(run_id.0.len())];
             print_banner(&format!("Verify — {}", id_short));
-            cprint!("  Verifying hash chain... ");
+            cprint!("  Inspecting chain of evidence... ");
             std::io::stdout().flush()?;
 
             match storage.verify_chain() {
                 Ok(true) => {
-                    cprintln!("{}", "VALID".green().bold());
-                    cprintln!("  Events:    {}", storage.event_count().to_string().cyan());
+                    cprintln!("{}", "INTACT".green().bold());
+                    cprintln!("  Traces:    {}", storage.event_count().to_string().cyan());
                     cprintln!("  Root hash: {}", storage.root_hash().unwrap_or_default().dimmed());
+                    cprintln!("  {}", "No tampering detected. The trail is clean.".dimmed());
                 }
                 Ok(false) => {
-                    cprintln!("{}", "TAMPERED".red().bold());
-                    eprintln!("  Hash chain verification failed - run may have been modified");
+                    cprintln!("{}", "COMPROMISED".red().bold());
+                    eprintln!("  Chain broken — evidence may have been altered");
                     std::process::exit(1);
                 }
                 Err(e) => {
@@ -555,10 +558,10 @@ async fn main() -> Result<()> {
                 flush_interval_ms: 200,
             };
 
-            print_banner("Daemon");
-            info!("Gateway: {}", config.gateway_url);
-            info!("Ledger:  {:?}", config.output_dir);
-            info!("Redaction: {}", if config.redact_secrets { "enabled" } else { "disabled" });
+            print_banner("Watching the wire");
+            info!("Wire: {}", config.gateway_url);
+            info!("Ledger: {:?}", config.output_dir);
+            info!("Redaction: {}", if config.redact_secrets { "on" } else { "off" });
 
             run_daemon(config).await?;
         }

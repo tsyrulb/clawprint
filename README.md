@@ -1,12 +1,10 @@
 # Clawprint
 
-**Flight recorder and receipts for OpenClaw agent runs**
+**Every molt leaves a mark. Trace. Verify. Trust.**
 
-> "Show the Clawprint" / "Receipts for agent actions"
+Clawprint is a tamper-evident audit trail for OpenClaw agent runs. It silently taps the gateway wire, capturing every trace a molt leaves behind — tool calls, outputs, lifecycle events — and seals them in a SHA-256 hash chain ledger. Replay sessions offline, inspect the evidence through a cybersecurity-style dashboard, or query activity from Claude Desktop via MCP.
 
-Clawprint is an audit, replay, and diff system for AI agent systems. It records every agent run (tool calls, outputs, metadata) in a tamper-evident ledger with offline replay capabilities, a cybersecurity-style web dashboard, and rich CLI analytics.
-
-**Not a proxy/firewall** — Clawprint is purely an observer and recorder.
+**Not a proxy or firewall** — Clawprint is a passive observer. It watches the wire, never touches it.
 
 ## Features
 
@@ -261,7 +259,7 @@ Or pass it directly: `clawprint record --token <token>`
 
 ## Integrity Verification
 
-Every event includes a SHA-256 hash computed from its canonical form (excluding `hash_self`). Each event's `hash_prev` points to the previous event's `hash_self`, forming a tamper-evident chain. The `verify` command checks the entire chain and reports `VALID` or `TAMPERED`.
+Every trace includes a SHA-256 hash computed from its canonical form. Each trace's `hash_prev` points to the previous trace's `hash_self`, forming a tamper-evident chain. The `verify` command inspects the entire chain of evidence and reports `INTACT` or `COMPROMISED`.
 
 ```bash
 $ clawprint verify --run <run_id> --out ./clawprints
