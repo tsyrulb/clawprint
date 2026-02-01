@@ -6,6 +6,12 @@
 
 <p align="center"><b>Every molt leaves a mark. Trace. Verify. Trust.</b></p>
 
+<p align="center">
+  <a href="https://github.com/tsyrulb/clawprint/actions/workflows/ci.yml"><img src="https://github.com/tsyrulb/clawprint/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/tsyrulb/clawprint/releases/latest"><img src="https://img.shields.io/github/v/release/tsyrulb/clawprint" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
+
 Clawprint is a tamper-evident audit trail for OpenClaw agent runs. It silently taps the gateway wire, capturing every trace a molt leaves behind — tool calls, outputs, lifecycle events — and seals them in a SHA-256 hash chain ledger. Replay sessions offline, inspect the evidence through the web dashboard, or query activity from Claude Desktop via MCP.
 
 **Not a proxy or firewall** — Clawprint is a passive observer. It watches the wire, never touches it.
