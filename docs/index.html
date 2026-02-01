@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clawprint — Tamper-evident audit trail for AI agents</title>
+<meta name="description" content="Every molt leaves a mark. Trace. Verify. Trust. Tamper-evident audit trail for OpenClaw agent runs.">
+<style>
+:root{--bg:#fafafa;--card:#fff;--accent:#111;--accent2:#6366f1;--green:#16a34a;--text:#111;--dim:#6b7280;--border:#e5e7eb;--code-bg:#f3f4f6;--radius:12px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--accent2);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.wrap{max-width:800px;margin:0 auto;padding:0 24px}
+
+/* Hero */
+.hero{text-align:center;padding:80px 24px 60px}
+.hero img{width:180px;height:180px;border-radius:50%;object-fit:cover;margin-bottom:24px;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+.hero h1{font-size:2.5rem;font-weight:800;letter-spacing:-.03em;margin-bottom:8px}
+.hero .tagline{color:var(--dim);font-size:1.1rem;max-width:520px;margin:0 auto 32px}
+.hero .desc{color:var(--dim);font-size:.95rem;max-width:560px;margin:0 auto;line-height:1.7}
+
+/* Install */
+.install{padding:48px 0;text-align:center}
+.install h2{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:16px}
+.install-box{display:inline-block;background:var(--accent);color:#fff;padding:14px 28px;border-radius:var(--radius);font-family:'SF Mono',SFMono-Regular,Menlo,monospace;font-size:.9rem;letter-spacing:-.01em;user-select:all;cursor:text}
+.install-alt{margin-top:16px;font-size:.85rem;color:var(--dim)}
+
+/* Features */
+.features{padding:48px 0}
+.features h2{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:20px;text-align:center}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.feat{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.feat h3{font-size:.95rem;font-weight:600;margin-bottom:4px}
+.feat p{font-size:.8rem;color:var(--dim);line-height:1.5}
+
+/* Quick start */
+.quickstart{padding:48px 0}
+.quickstart h2{font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);margin-bottom:20px;text-align:center}
+pre{background:var(--accent);color:#e5e7eb;padding:20px 24px;border-radius:var(--radius);font-family:'SF Mono',SFMono-Regular,Menlo,monospace;font-size:.82rem;overflow-x:auto;line-height:1.8;margin-bottom:12px}
+pre .comment{color:#6b7280}
+pre .cmd{color:#a5f3fc}
+
+/* Footer */
+footer{padding:48px 0 64px;text-align:center;border-top:1px solid var(--border);margin-top:48px}
+footer .links{display:flex;gap:24px;justify-content:center;margin-bottom:12px;font-size:.9rem}
+footer .sub{font-size:.75rem;color:var(--dim);letter-spacing:.02em}
+
+@media(max-width:600px){
+  .hero h1{font-size:1.8rem}
+  .hero{padding:48px 16px 40px}
+  .install-box{font-size:.78rem;padding:12px 20px}
+  .grid{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <img src="clawprint.jpg" alt="Clawprint">
+  <h1>Clawprint</h1>
+  <p class="tagline">Every molt leaves a mark. Trace. Verify. Trust.</p>
+  <p class="desc">Tamper-evident audit trail for OpenClaw agent runs. Silently taps the wire, captures every trace, and seals them in a SHA-256 hash chain. Not a proxy or firewall &mdash; a passive observer.</p>
+</div>
+
+<div class="wrap">
+
+<div class="install">
+  <h2>Install</h2>
+  <div class="install-box">curl -fsSL https://raw.githubusercontent.com/tsyrulb/clawprint/master/install.sh | bash</div>
+  <div class="install-alt">
+    Windows? Download <a href="https://github.com/tsyrulb/clawprint/releases/latest">clawprint-windows-x86_64.exe</a> from releases.
+    <br>Or build from source: <code>cargo install --path .</code>
+  </div>
+</div>
+
+<div class="features">
+  <h2>Features</h2>
+  <div class="grid">
+    <div class="feat">
+      <h3>24/7 daemon</h3>
+      <p>Continuous recording to a single ledger with auto-reconnect and exponential backoff.</p>
+    </div>
+    <div class="feat">
+      <h3>MCP server</h3>
+      <p>Query agent activity from Claude Desktop or Claude Code via natural language.</p>
+    </div>
+    <div class="feat">
+      <h3>Security scanner</h3>
+      <p>Detect destructive ops, prompt injection, privilege escalation, and cost anomalies.</p>
+    </div>
+    <div class="feat">
+      <h3>Hash chain ledger</h3>
+      <p>SHA-256 chain for every trace. Tamper with one event, the whole chain breaks.</p>
+    </div>
+    <div class="feat">
+      <h3>Secret redaction</h3>
+      <p>Auto-redacts API keys, tokens, JWTs, AWS keys, GitHub PATs before storage.</p>
+    </div>
+    <div class="feat">
+      <h3>Web dashboard</h3>
+      <p>Browse impressions, filter traces, search payloads, inspect evidence breakdowns.</p>
+    </div>
+    <div class="feat">
+      <h3>Offline replay</h3>
+      <p>Reconstruct agent runs with chat output, tool calls, and timeline.</p>
+    </div>
+    <div class="feat">
+      <h3>Cross-platform</h3>
+      <p>Prebuilt binaries for Linux, macOS, and Windows. Single binary, no dependencies.</p>
+    </div>
+  </div>
+</div>
+
+<div class="quickstart">
+  <h2>Quick start</h2>
+  <pre><span class="comment"># Record a session</span>
+<span class="cmd">clawprint record</span> --gateway ws://127.0.0.1:18789 --out ./clawprints
+
+<span class="comment"># Open dashboard in browser</span>
+<span class="cmd">clawprint open</span> --out ./clawprints
+
+<span class="comment"># 24/7 daemon mode</span>
+<span class="cmd">clawprint daemon</span> --gateway ws://127.0.0.1:18789 --out ./clawprints
+
+<span class="comment"># Verify hash chain integrity</span>
+<span class="cmd">clawprint verify</span> --run &lt;run_id&gt; --out ./clawprints
+
+<span class="comment"># Start MCP server for Claude Desktop</span>
+<span class="cmd">clawprint mcp</span> --out ./clawprints</pre>
+</div>
+
+</div>
+
+<footer>
+  <div class="links">
+    <a href="https://github.com/tsyrulb/clawprint">GitHub</a>
+    <a href="https://github.com/tsyrulb/clawprint/releases/latest">Releases</a>
+    <a href="https://github.com/tsyrulb/clawprint#readme">Docs</a>
+  </div>
+  <div class="sub">MIT License &middot; Watching the wire</div>
+</footer>
+
+</body>
+</html>
