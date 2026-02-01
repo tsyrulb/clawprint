@@ -4,8 +4,9 @@
 
 use anyhow::Result;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::StatusCode,
+    middleware::{self, Next},
     response::{Html, IntoResponse, Json},
     routing::get,
     Router,
@@ -13,6 +14,7 @@ use axum::{
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
 
 use crate::storage::{list_runs_with_stats, RunStorage};
@@ -23,7 +25,19 @@ struct ViewerState {
     base_path: PathBuf,
 }
 
-pub async fn start_viewer(base_path: PathBuf, host: [u8; 4], port: u16) -> Result<()> {
+pub async fn bearer_auth(
+    State(expected): State<Arc<String>>,
+    req: Request,
+    next: Next,
+) -> impl IntoResponse {
+    let auth_header = req.headers().get("authorization").and_then(|v| v.to_str().ok());
+    match auth_header {
+        Some(val) if val == format!("Bearer {}", *expected) => next.run(req).await.into_response(),
+        _ => (StatusCode::UNAUTHORIZED, "Unauthorized").into_response(),
+    }
+}
+
+pub async fn start_viewer(base_path: PathBuf, host: [u8; 4], port: u16, token: Option<String>) -> Result<()> {
     let state = ViewerState { base_path };
 
     let app = Router::new()
@@ -35,11 +49,17 @@ pub async fn start_viewer(base_path: PathBuf, host: [u8; 4], port: u16) -> Resul
         .route("/api/runs/{run_id}/stats", get(get_run_stats_handler))
         .with_state(state);
 
+    let app = if let Some(tok) = token {
+        app.layer(middleware::from_fn_with_state(Arc::new(tok), bearer_auth))
+    } else {
+        app
+    };
+
     let addr = SocketAddr::from((host, port));
     info!("Viewer starting on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app.into_make_service()).await?;
     Ok(())
 }
 

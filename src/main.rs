@@ -166,6 +166,9 @@ enum Commands {
         /// Port for viewer server
         #[arg(short, long, default_value = "8080")]
         port: u16,
+        /// Bearer token for HTTP auth (recommended when using --host 0.0.0.0)
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Replay a recorded run
     Replay {
@@ -227,6 +230,9 @@ enum Commands {
         /// Port for SSE server (only used with --transport sse)
         #[arg(short, long, default_value = "3000")]
         port: u16,
+        /// Bearer token for HTTP auth (recommended for SSE transport)
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Open a recording in the web viewer (latest run if none specified)
     Open {
@@ -242,6 +248,9 @@ enum Commands {
         /// Port for viewer server
         #[arg(short, long, default_value = "8080")]
         port: u16,
+        /// Bearer token for HTTP auth (recommended when using --host 0.0.0.0)
+        #[arg(long)]
+        token: Option<String>,
     },
     /// Run as a 24/7 daemon recording to a continuous ledger
     Daemon {
@@ -449,24 +458,33 @@ async fn main() -> Result<()> {
             );
         }
 
-        Commands::View { run, out, open, host, port } => {
+        Commands::View { run, out, open, host, port, token } => {
             let host_octets = parse_host(&host)?;
+            if host == "0.0.0.0" && token.is_none() {
+                warn!("Binding to 0.0.0.0 without --token: viewer is open to the network");
+            }
             let run_id = resolve_run_id(&run, &out)?;
             let id_short = &run_id.0[..8.min(run_id.0.len())];
             let display_host = if host == "0.0.0.0" { "0.0.0.0" } else { &host };
             print_banner(&format!("Viewer — {}", id_short));
             cprintln!("  {}\n", format!("http://{}:{}", display_host, port).underline());
+            if token.is_some() {
+                cprintln!("  {}\n", "Auth: Bearer token required".green());
+            }
 
             if open {
                 let url = format!("http://127.0.0.1:{}/view/{}", port, run_id.0);
                 let _ = open::that(&url);
             }
 
-            start_viewer(out, host_octets, port).await?;
+            start_viewer(out, host_octets, port, token).await?;
         }
 
-        Commands::Open { run, out, host, port } => {
+        Commands::Open { run, out, host, port, token } => {
             let host_octets = parse_host(&host)?;
+            if host == "0.0.0.0" && token.is_none() {
+                warn!("Binding to 0.0.0.0 without --token: viewer is open to the network");
+            }
             let run_id = match run {
                 Some(r) => resolve_run_id(&r, &out)?,
                 None => {
@@ -487,9 +505,12 @@ async fn main() -> Result<()> {
             let url = format!("http://127.0.0.1:{}/view/{}", port, run_id.0);
             print_banner(&format!("Opening run {}", id_short));
             cprintln!("  {}\n", url.underline());
+            if token.is_some() {
+                cprintln!("  {}\n", "Auth: Bearer token required".green());
+            }
 
             let _ = open::that(&url);
-            start_viewer(out, host_octets, port).await?;
+            start_viewer(out, host_octets, port, token).await?;
         }
 
         Commands::Replay { run, out, offline, export } => {
@@ -550,7 +571,7 @@ async fn main() -> Result<()> {
         }
 
         #[cfg(feature = "mcp")]
-        Commands::Mcp { out, transport, host, port } => {
+        Commands::Mcp { out, transport, host, port, token } => {
             match transport.as_str() {
                 "stdio" => {
                     // MCP server: stdout is JSON-RPC only, all logging to stderr
@@ -563,6 +584,9 @@ async fn main() -> Result<()> {
                 }
                 "sse" => {
                     let host_octets = parse_host(&host)?;
+                    if host == "0.0.0.0" && token.is_none() {
+                        warn!("Binding to 0.0.0.0 without --token: MCP server is open to the network");
+                    }
                     print_banner("MCP Server (SSE)");
 
                     let ct = tokio_util::sync::CancellationToken::new();
@@ -579,9 +603,21 @@ async fn main() -> Result<()> {
                         );
 
                     let app = axum::Router::new().nest_service("/mcp", service);
+                    let app = if let Some(ref tok) = token {
+                        app.layer(axum::middleware::from_fn_with_state(
+                            std::sync::Arc::new(tok.clone()),
+                            clawprint::viewer::bearer_auth,
+                        ))
+                    } else {
+                        app
+                    };
+
                     let addr = std::net::SocketAddr::from((host_octets, port));
 
                     cprintln!("  MCP endpoint: {}\n", format!("http://{}:{}/mcp", host, port).underline());
+                    if token.is_some() {
+                        cprintln!("  {}\n", "Auth: Bearer token required".green());
+                    }
                     cprintln!("  Claude Desktop config:");
                     cprintln!("  {{");
                     cprintln!("    \"mcpServers\": {{");
@@ -593,7 +629,7 @@ async fn main() -> Result<()> {
                     cprintln!("  Ledger: {:?}", out);
 
                     let listener = tokio::net::TcpListener::bind(addr).await?;
-                    axum::serve(listener, app)
+                    axum::serve(listener, app.into_make_service())
                         .with_graceful_shutdown(async move {
                             tokio::signal::ctrl_c().await.ok();
                             ct.cancel();
