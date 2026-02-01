@@ -19,7 +19,8 @@ Clawprint is an audit, replay, and diff system for AI agent systems. It records 
 - **Web dashboard** — Dark-themed cybersecurity dashboard with filtered/paginated events, search, and bar charts
 - **CLI analytics** — Colored output, event histograms, per-minute timeline, live recording spinner
 - **Run diffing** — Compare two runs side-by-side with event kind breakdown
-- **Cross-platform** — Runs on macOS, Linux, cloud VMs
+- **Cross-platform** — Prebuilt binaries for Linux (x86_64, aarch64) and macOS (Intel, Apple Silicon)
+- **CI/CD** — GitHub Actions for testing, linting, and automated release builds
 
 ## Quick Start
 
@@ -269,6 +270,29 @@ $ clawprint verify --run <run_id> --out ./clawprints
   Root hash: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 ```
 
+## Installation
+
+### Prebuilt binaries
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsyrulb/clawprint/master/install.sh | bash
+```
+
+Downloads the latest release binary for your platform (Linux x86_64/aarch64, macOS Intel/Apple Silicon). Falls back to building from source if no binary is available.
+
+### From source
+
+```bash
+cargo install --path .
+```
+
+Or manually:
+
+```bash
+cargo build --release
+cp target/release/clawprint ~/.local/bin/
+```
+
 ## Building
 
 ```bash
@@ -284,6 +308,17 @@ cargo test
 # Without web viewer or MCP features
 cargo build --no-default-features
 ```
+
+## Releasing
+
+Releases are automated via GitHub Actions. To publish a new version:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+This builds binaries for all 4 platforms and creates a GitHub Release with the assets attached.
 
 ## License
 

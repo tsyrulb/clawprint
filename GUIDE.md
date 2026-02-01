@@ -33,6 +33,14 @@ A step-by-step guide to installing, configuring, and using Clawprint to record, 
 
 ## Installation
 
+### Prebuilt binaries (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsyrulb/clawprint/master/install.sh | bash
+```
+
+This downloads the latest release binary for your platform (Linux x86_64/aarch64, macOS Intel/Apple Silicon) and installs it to `~/.local/bin/`. Falls back to building from source if no prebuilt binary is available.
+
 ### From source
 
 ```bash
