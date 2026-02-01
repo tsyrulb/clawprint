@@ -1,6 +1,10 @@
-# Clawprint
+<p align="center">
+  <img src="clawprint.jpg" alt="Clawprint" width="300">
+</p>
 
-**Every molt leaves a mark. Trace. Verify. Trust.**
+<h1 align="center">Clawprint</h1>
+
+<p align="center"><b>Every molt leaves a mark. Trace. Verify. Trust.</b></p>
 
 Clawprint is a tamper-evident audit trail for OpenClaw agent runs. It silently taps the gateway wire, capturing every trace a molt leaves behind — tool calls, outputs, lifecycle events — and seals them in a SHA-256 hash chain ledger. Replay sessions offline, inspect the evidence through a cybersecurity-style dashboard, or query activity from Claude Desktop via MCP.
 
@@ -97,7 +101,7 @@ sudo systemctl enable --now clawprint
 
 Clawprint includes an MCP (Model Context Protocol) server so you can query agent activity directly from Claude Desktop using natural language.
 
-### Setup
+### Local setup (stdio)
 
 Add to your Claude Desktop config (`~/.claude/claude_desktop_config.json`):
 
@@ -107,6 +111,26 @@ Add to your Claude Desktop config (`~/.claude/claude_desktop_config.json`):
     "clawprint": {
       "command": "clawprint",
       "args": ["mcp", "--out", "/path/to/clawprints"]
+    }
+  }
+}
+```
+
+### Remote setup (SSE)
+
+Run the MCP server in SSE mode on the machine with your recordings:
+
+```bash
+clawprint mcp --transport sse --host 0.0.0.0 --port 3000 --token mysecret
+```
+
+Then on your remote machine, configure Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "clawprint": {
+      "url": "http://<host-ip>:3000/mcp"
     }
   }
 }
@@ -251,10 +275,12 @@ Or pass it directly: `clawprint record --token <token>`
 |--------|---------|-------------|
 | `--gateway` | `ws://127.0.0.1:18789` | Gateway WebSocket URL |
 | `--out` | `./clawprints` | Output directory for recordings |
-| `--token` | auto-discovered | Gateway auth token |
+| `--token` | auto-discovered | Gateway auth token (record/daemon) or HTTP bearer token (view/open/mcp) |
 | `--no-redact` | `false` | Disable secret redaction |
 | `--batch-size` | `100` | SQLite batch commit size |
-| `--port` | `8080` | Web viewer port |
+| `--host` | `127.0.0.1` | Bind address for viewer/MCP (use `0.0.0.0` for network access) |
+| `--port` | `8080` / `3000` | Web viewer / MCP SSE server port |
+| `--transport` | `stdio` | MCP transport: `stdio` (local) or `sse` (network) |
 | `RUST_LOG` | `clawprint=info` | Log level (set to `clawprint=debug` for verbose output) |
 
 ## Integrity Verification
