@@ -6,7 +6,7 @@
 
 <p align="center"><b>Every molt leaves a mark. Trace. Verify. Trust.</b></p>
 
-Clawprint is a tamper-evident audit trail for OpenClaw agent runs. It silently taps the gateway wire, capturing every trace a molt leaves behind — tool calls, outputs, lifecycle events — and seals them in a SHA-256 hash chain ledger. Replay sessions offline, inspect the evidence through a cybersecurity-style dashboard, or query activity from Claude Desktop via MCP.
+Clawprint is a tamper-evident audit trail for OpenClaw agent runs. It silently taps the gateway wire, capturing every trace a molt leaves behind — tool calls, outputs, lifecycle events — and seals them in a SHA-256 hash chain ledger. Replay sessions offline, inspect the evidence through the web dashboard, or query activity from Claude Desktop via MCP.
 
 **Not a proxy or firewall** — Clawprint is a passive observer. It watches the wire, never touches it.
 
@@ -15,10 +15,10 @@ Clawprint is a tamper-evident audit trail for OpenClaw agent runs. It silently t
 - **24/7 daemon mode** — Continuous recording to a single ledger, auto-reconnect on disconnect
 - **MCP server** — Claude Desktop integration for querying agent activity via natural language
 - **Security scanner** — Detect destructive operations, prompt injection, privilege escalation, and anomalies
-- **Tamper-evident ledger** — SHA-256 hash chain for every event with integrity verification
+- **Tamper-evident ledger** — SHA-256 hash chain for every trace with integrity verification
 - **Secret redaction** — Automatic redaction of API keys, tokens, JWTs, AWS keys, GitHub PATs, and credentials
 - **Offline replay** — Reconstruct agent runs with event breakdowns, agent run sections, and chat reconstruction
-- **Web dashboard** — Dark-themed cybersecurity dashboard with filtered/paginated events, search, and bar charts
+- **Web dashboard** — Clean minimal dashboard with filtered/paginated traces, search, and bar charts
 - **CLI analytics** — Colored output, event histograms, per-minute timeline, live recording spinner
 - **Run diffing** — Compare two runs side-by-side with event kind breakdown
 - **Cross-platform** — Prebuilt binaries for Linux (x86_64, aarch64) and macOS (Intel, Apple Silicon)
@@ -71,7 +71,7 @@ clawprint daemon --gateway ws://127.0.0.1:18789 --out ./clawprints
 
 The daemon:
 - Writes to a single `ledger.sqlite` that grows forever
-- Automatically groups events into agent conversation runs
+- Automatically groups traces into agent conversation runs
 - Reconnects with exponential backoff (1s, 2s, 4s... up to 60s)
 - Shuts down gracefully on Ctrl+C / SIGTERM
 
@@ -162,7 +162,7 @@ Ask Claude things like:
 
 ## Security Auditing
 
-The built-in security scanner detects suspicious patterns in recorded events:
+The built-in security scanner detects suspicious patterns in recorded traces:
 
 | Category | What it detects |
 |----------|----------------|
@@ -170,7 +170,7 @@ The built-in security scanner detects suspicious patterns in recorded events:
 | Prompt Injection | "ignore previous instructions", role switching, obfuscated base64 payloads |
 | Privilege Escalation | `sudo`, `chmod 777`, writes to `/etc/`, `/root/` |
 | External Access | `curl`/`wget` in tool calls, HTTP URLs in tool arguments |
-| Cost Anomaly | >50 tool calls per agent run, >100 events per minute |
+| Cost Anomaly | >50 tool calls per agent run, >100 traces per minute |
 
 Use via MCP: ask Claude "run a security check on today's activity"
 
@@ -178,10 +178,10 @@ Or programmatically via the `clawprint::security::scan_events()` API.
 
 ## Web Dashboard
 
-The `view` command launches a dark-themed cybersecurity dashboard at `http://127.0.0.1:8080`:
+The `view` command launches a minimal web dashboard at `http://127.0.0.1:8080`:
 
-- **Dashboard page** — Summary cards (total runs, events, storage), clickable run list with status badges and integrity indicators
-- **Run detail page** — Event breakdown bar chart, filter buttons per event kind, text search with debounce, paginated event list (50/page), collapsible JSON payloads, color-coded event cards
+- **Dashboard page** — Summary stats (impressions, traces, evidence), clickable run list with status badges and integrity indicators
+- **Run detail page** — Evidence breakdown bar chart, filter buttons per trace kind, text search with debounce, paginated trace log (50/page), collapsible JSON payloads, color-coded trace cards
 
 ### API Endpoints
 
@@ -285,12 +285,12 @@ Or pass it directly: `clawprint record --token <token>`
 
 ## Integrity Verification
 
-Every trace includes a SHA-256 hash computed from its canonical form. Each trace's `hash_prev` points to the previous trace's `hash_self`, forming a tamper-evident chain. The `verify` command inspects the entire chain of evidence and reports `INTACT` or `COMPROMISED`.
+Every trace includes a SHA-256 hash computed from its canonical form. Each trace's `hash_prev` points to the previous trace's `hash_self`, forming a tamper-evident chain. The `verify` command inspects the entire chain of evidence and reports `SEALED` or `COMPROMISED`.
 
 ```bash
 $ clawprint verify --run <run_id> --out ./clawprints
-  Verifying hash chain for a1b2c3d4... VALID
-  Events:    1234
+  Inspecting chain of evidence for a1b2c3d4... SEALED
+  Traces:    1234
   Root hash: 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
 ```
 
