@@ -57,6 +57,28 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
+/// Print the Clawprint crab claw banner with an optional subtitle
+fn print_banner(subtitle: &str) {
+    cprintln!(
+        "{}",
+        r#"
+     ___
+    /   \
+   | (o) |
+    \   /
+  ---) (---
+ /  / \  \
+|  /   \  |"#
+            .bright_cyan()
+    );
+    cprintln!(
+        "  {} {}  {}\n",
+        "Clawprint".bright_cyan().bold(),
+        format!("v{}", env!("CARGO_PKG_VERSION")).dimmed(),
+        subtitle.bright_white(),
+    );
+}
+
 #[cfg(feature = "mcp")]
 use rmcp::ServiceExt as _;
 
@@ -304,7 +326,7 @@ async fn main() -> Result<()> {
                 flush_interval_ms: 200,
             };
 
-            info!("Starting Clawprint recorder...");
+            print_banner("Recording");
             info!("Gateway: {}", config.gateway_url);
             info!("Output: {:?}", config.output_dir);
             info!("Redaction: {}", if config.redact_secrets { "enabled" } else { "disabled" });
@@ -345,7 +367,7 @@ async fn main() -> Result<()> {
                 return Ok(());
             }
 
-            cprintln!("\n  {}\n", "Clawprint Recordings".bright_cyan().bold());
+            print_banner("Recordings");
             cprintln!(
                 "  {:<14} {:<20} {:<14} {:>8}  {:>10}",
                 "RUN ID".bold().dimmed(),
@@ -394,12 +416,8 @@ async fn main() -> Result<()> {
         Commands::View { run, out, open, port } => {
             let run_id = resolve_run_id(&run, &out)?;
             let id_short = &run_id.0[..8.min(run_id.0.len())];
-            cprintln!(
-                "\n  {} Viewer for run {}\n  {}\n",
-                "Clawprint".bright_cyan().bold(),
-                id_short.bright_blue(),
-                format!("http://127.0.0.1:{}", port).underline(),
-            );
+            print_banner(&format!("Viewer — {}", id_short));
+            cprintln!("  {}\n", format!("http://127.0.0.1:{}", port).underline());
 
             if open {
                 let url = format!("http://127.0.0.1:{}/view/{}", port, run_id.0);
@@ -428,12 +446,8 @@ async fn main() -> Result<()> {
 
             let id_short = &run_id.0[..8.min(run_id.0.len())];
             let url = format!("http://127.0.0.1:{}/view/{}", port, run_id.0);
-            cprintln!(
-                "\n  {} Opening run {}\n  {}\n",
-                "Clawprint".bright_cyan().bold(),
-                id_short.bright_blue(),
-                url.underline(),
-            );
+            print_banner(&format!("Opening run {}", id_short));
+            cprintln!("  {}\n", url.underline());
 
             let _ = open::that(&url);
             start_viewer(out, port).await?;
@@ -473,7 +487,8 @@ async fn main() -> Result<()> {
             let storage = RunStorage::open(run_id.clone(), &out)?;
 
             let id_short = &run_id.0[..8.min(run_id.0.len())];
-            cprint!("  Verifying hash chain for {}... ", id_short.bright_blue());
+            print_banner(&format!("Verify — {}", id_short));
+            cprint!("  Verifying hash chain... ");
             std::io::stdout().flush()?;
 
             match storage.verify_chain() {
@@ -540,7 +555,7 @@ async fn main() -> Result<()> {
                 flush_interval_ms: 200,
             };
 
-            info!("Starting Clawprint daemon...");
+            print_banner("Daemon");
             info!("Gateway: {}", config.gateway_url);
             info!("Ledger:  {:?}", config.output_dir);
             info!("Redaction: {}", if config.redact_secrets { "enabled" } else { "disabled" });
@@ -553,11 +568,7 @@ async fn main() -> Result<()> {
             let storage = RunStorage::open(run_id.clone(), &out)?;
 
             let id_short = &run_id.0[..8.min(run_id.0.len())];
-            cprintln!(
-                "\n  {} Run {}\n",
-                "Statistics".bright_cyan().bold(),
-                id_short.bright_blue(),
-            );
+            print_banner(&format!("Stats — {}", id_short));
 
             // Event breakdown
             let breakdown = storage.event_count_by_kind()?;
