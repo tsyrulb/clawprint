@@ -130,17 +130,20 @@ Run the MCP server in SSE mode on the machine with your recordings:
 clawprint mcp --transport sse --host 0.0.0.0 --port 3000 --token mysecret
 ```
 
-Then on your remote machine, configure Claude Desktop:
+Then on your remote machine, configure Claude Desktop. Since `mcp-remote` enforces HTTPS for non-localhost addresses, use `--allow-http` when connecting over a private network (e.g. WireGuard):
 
 ```json
 {
   "mcpServers": {
     "clawprint": {
-      "url": "http://<host-ip>:3000/mcp"
+      "command": "npx",
+      "args": ["mcp-remote", "http://<host-ip>:3000/mcp", "--allow-http"]
     }
   }
 }
 ```
+
+Requires Node.js >= 20.18.1 on the client machine.
 
 ### Available tools
 
@@ -392,11 +395,14 @@ From any client on the WireGuard network, access `http://10.0.0.1:8080` in a bro
 {
   "mcpServers": {
     "clawprint": {
-      "url": "http://10.0.0.1:3000/mcp"
+      "command": "npx",
+      "args": ["mcp-remote", "http://10.0.0.1:3000/mcp", "--allow-http"]
     }
   }
 }
 ```
+
+Requires Node.js >= 20.18.1 on the client machine. The `--allow-http` flag is safe here since `10.0.0.1` is the private WireGuard interface (encrypted at the tunnel level).
 
 ### Verify the tunnel
 
@@ -404,6 +410,23 @@ From any client on the WireGuard network, access `http://10.0.0.1:8080` in a bro
 sudo wg show    # Check handshake and transfer stats
 ping 10.0.0.1   # Test connectivity
 ```
+
+### Claude Desktop MCP config over WireGuard
+
+Claude Desktop requires `npx mcp-remote` as a stdio-to-SSE bridge. Since `mcp-remote` enforces HTTPS for non-localhost addresses, use `--allow-http` for private WireGuard IPs:
+
+```json
+{
+  "mcpServers": {
+    "clawprint": {
+      "command": "npx",
+      "args": ["mcp-remote", "http://10.0.0.1:3000/mcp", "--allow-http"]
+    }
+  }
+}
+```
+
+Requires Node.js >= 20.18.1 on the client machine. The `--allow-http` flag is safe here since traffic is encrypted at the WireGuard tunnel level.
 
 ## Configuration
 
@@ -421,7 +444,7 @@ ping 10.0.0.1   # Test connectivity
 
 ## Integrity Verification
 
-Every trace includes a SHA-256 hash computed from its canonical form. Each trace's `hash_prev` points to the previous trace's `hash_self`, forming a tamper-evident chain. The `verify` command inspects the entire chain of evidence and reports `SEALED` or `COMPROMISED`.
+Every trace includes a SHA-256 hash computed from its canonical form. Each trace's `hash_prev` points to the previous trace's `hash_self`, forming a tamper-evident chain. The `verify` command inspects the entire chain of evidence and reports `INTACT` or `COMPROMISED`.
 
 ```bash
 $ clawprint verify --run <run_id> --out ./clawprints
