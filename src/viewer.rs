@@ -597,4 +597,59 @@ mod tests {
         assert_eq!(format_duration_html(start, Some(end)), "1h 30m 45s");
         assert_eq!(format_duration_html(start, None), "recording...");
     }
+
+    #[tokio::test]
+    async fn test_viewer_with_shutdown() {
+        use std::time::Duration;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio_util::sync::CancellationToken;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let base_path = tmp.path().to_path_buf();
+
+        // Find a free port
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let ct = CancellationToken::new();
+        let ct_clone = ct.clone();
+
+        let handle = tokio::spawn(async move {
+            start_viewer_with_shutdown(base_path, [127, 0, 0, 1], port, None, ct_clone).await
+        });
+
+        // Wait for server to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Send a raw HTTP request
+        let mut stream = tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+            .await
+            .expect("failed to connect to viewer");
+
+        let request = format!(
+            "GET / HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nConnection: close\r\n\r\n",
+            port
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+
+        assert!(
+            response.contains("Clawprint"),
+            "Response should contain 'Clawprint', got: {}",
+            &response[..response.len().min(200)]
+        );
+
+        // Shut down gracefully
+        ct.cancel();
+
+        let result = tokio::time::timeout(Duration::from_secs(5), handle)
+            .await
+            .expect("viewer did not shut down in time")
+            .expect("viewer task panicked");
+
+        result.expect("viewer returned an error");
+    }
 }
