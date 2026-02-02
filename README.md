@@ -39,10 +39,11 @@ curl -fsSL https://raw.githubusercontent.com/cyntrisec/clawprint/master/install.
 # Or build from source
 cargo install --path .
 
-# Start 24/7 daemon (recommended for always-on agents)
-clawprint daemon --gateway ws://127.0.0.1:18789 --out ./clawprints
+# Run everything in one process (daemon + viewer + MCP)
+clawprint serve --daemon --viewer --mcp --out ./clawprints
 
-# Or record a single session
+# Or start individual services
+clawprint daemon --gateway ws://127.0.0.1:18789 --out ./clawprints
 clawprint record --gateway ws://127.0.0.1:18789 --out ./clawprints
 
 # Open the latest recording in browser
@@ -56,6 +57,7 @@ clawprint mcp --out ./clawprints
 
 | Command | Description |
 |---------|-------------|
+| `serve` | Run daemon + viewer + MCP in a single process |
 | `daemon` | 24/7 continuous recording to a single ledger with auto-reconnect |
 | `record` | Record a single session with post-recording summary |
 | `mcp` | Start MCP server for Claude Desktop integration |
@@ -66,6 +68,36 @@ clawprint mcp --out ./clawprints
 | `stats` | Show event type histogram, events-per-minute timeline, and agent run count |
 | `verify` | Verify SHA-256 hash chain integrity for a recorded run |
 | `diff` | Compare two runs with event kind breakdown |
+
+## Serve Mode (All-in-One)
+
+The `serve` command runs any combination of daemon, viewer, and MCP server in a single process. No more juggling multiple terminals.
+
+```bash
+# Run everything
+clawprint serve --daemon --viewer --mcp --out ./clawprints
+
+# Daemon + viewer only
+clawprint serve --daemon --viewer --out ./clawprints
+
+# Daemon + MCP only
+clawprint serve --daemon --mcp --out ./clawprints
+
+# Viewer only (browse existing recordings)
+clawprint serve --viewer --out ./clawprints
+```
+
+Per-service bind addresses can be configured independently:
+
+```bash
+clawprint serve --daemon --viewer --mcp \
+  --out ./clawprints \
+  --viewer-host 10.0.0.1 --viewer-port 8080 \
+  --mcp-host 10.0.0.1 --mcp-port 3000 \
+  --token mysecret
+```
+
+All services share a single Ctrl+C handler for coordinated graceful shutdown.
 
 ## Daemon Mode (24/7 Recording)
 
@@ -91,7 +123,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/clawprint daemon --gateway ws://127.0.0.1:18789 --out /var/lib/clawprints
+ExecStart=/usr/local/bin/clawprint serve --daemon --viewer --mcp --out /var/lib/clawprints --token mysecret
 Restart=on-failure
 RestartSec=5
 
@@ -382,10 +414,14 @@ Only UDP port 51820 needs to be open on the server:
 Bind to the WireGuard IP so Clawprint is only reachable through the tunnel:
 
 ```bash
-# Web dashboard
-clawprint open --out ./clawprints --host 10.0.0.1 --token mysecret
+# All-in-one: daemon + viewer + MCP bound to WireGuard interface
+clawprint serve --daemon --viewer --mcp \
+  --out ./clawprints \
+  --viewer-host 10.0.0.1 --mcp-host 10.0.0.1 \
+  --token mysecret
 
-# MCP server
+# Or run services individually
+clawprint open --out ./clawprints --host 10.0.0.1 --token mysecret
 clawprint mcp --transport sse --host 10.0.0.1 --port 3000 --token mysecret --out ./clawprints
 ```
 
@@ -439,6 +475,10 @@ Requires Node.js >= 20.18.1 on the client machine. The `--allow-http` flag is sa
 | `--batch-size` | `100` | SQLite batch commit size |
 | `--host` | `127.0.0.1` (viewer/open), `0.0.0.0` (MCP SSE) | Bind address for viewer/MCP |
 | `--port` | `8080` / `3000` | Web viewer / MCP SSE server port |
+| `--viewer-host` | `127.0.0.1` | Viewer bind address (`serve` only) |
+| `--viewer-port` | `8080` | Viewer port (`serve` only) |
+| `--mcp-host` | `0.0.0.0` | MCP SSE bind address (`serve` only) |
+| `--mcp-port` | `3000` | MCP SSE port (`serve` only) |
 | `--transport` | `stdio` | MCP transport: `stdio` (local) or `sse` (network) |
 | `RUST_LOG` | `clawprint=info` | Log level (set to `clawprint=debug` for verbose output) |
 
