@@ -615,3 +615,422 @@ fn format_duration(secs: i64) -> String {
         format!("{}s", s)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ledger::Ledger;
+    use crate::{Event, EventId, EventKind, RunId};
+    use tempfile::TempDir;
+
+    fn make_event(kind: EventKind, payload: serde_json::Value) -> Event {
+        Event::new(RunId("test".into()), EventId(0), kind, payload, None)
+    }
+
+    /// Populate a ledger with realistic test data: two agent runs with tool
+    /// calls, output chunks, and ticks.
+    fn seed_ledger(ledger: &mut Ledger) {
+        // Agent run "run-alpha" — two tool calls + one output chunk
+        let events = vec![
+            make_event(
+                EventKind::AgentEvent,
+                serde_json::json!({
+                    "data": {"runId": "run-alpha", "type": "tool_use", "tool": "read_file",
+                             "args": {"path": "/src/main.rs"}}
+                }),
+            ),
+            make_event(
+                EventKind::AgentEvent,
+                serde_json::json!({
+                    "data": {"runId": "run-alpha", "type": "tool_use", "tool": "bash",
+                             "args": {"command": "cargo test"}}
+                }),
+            ),
+            make_event(
+                EventKind::OutputChunk,
+                serde_json::json!({
+                    "data": {"runId": "run-alpha", "state": "final",
+                             "text": "All tests passed!"}
+                }),
+            ),
+            // Agent run "run-beta" — one tool call
+            make_event(
+                EventKind::AgentEvent,
+                serde_json::json!({
+                    "data": {"runId": "run-beta", "type": "tool_use", "tool": "write_file",
+                             "args": {"path": "/tmp/out.txt", "content": "hello"}}
+                }),
+            ),
+            // Tick with no agent run
+            make_event(EventKind::Tick, serde_json::json!({"ts": 1})),
+        ];
+
+        for event in events {
+            ledger.append_event(event).unwrap();
+        }
+        ledger.flush().unwrap();
+    }
+
+    fn setup() -> (TempDir, ClawprintMcp) {
+        let tmp = TempDir::new().unwrap();
+        {
+            let mut ledger = Ledger::open(tmp.path(), 100).unwrap();
+            seed_ledger(&mut ledger);
+        }
+        let mcp = ClawprintMcp::new(tmp.path().to_path_buf());
+        (tmp, mcp)
+    }
+
+    fn extract_text(result: &CallToolResult) -> String {
+        result
+            .content
+            .iter()
+            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    // -- Unit tests for helper functions --
+
+    #[test]
+    fn test_parse_datetime_iso8601() {
+        let dt = ClawprintMcp::parse_datetime("2026-01-31T12:00:00Z").unwrap();
+        assert_eq!(dt.format("%Y-%m-%d").to_string(), "2026-01-31");
+    }
+
+    #[test]
+    fn test_parse_datetime_date_only() {
+        let dt = ClawprintMcp::parse_datetime("2026-01-31").unwrap();
+        assert_eq!(
+            dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+            "2026-01-31 00:00:00"
+        );
+    }
+
+    #[test]
+    fn test_parse_datetime_today() {
+        let dt = ClawprintMcp::parse_datetime("today").unwrap();
+        let today = chrono::Utc::now().date_naive();
+        assert_eq!(dt.date_naive(), today);
+    }
+
+    #[test]
+    fn test_parse_datetime_yesterday() {
+        let dt = ClawprintMcp::parse_datetime("yesterday").unwrap();
+        let yesterday = chrono::Utc::now().date_naive() - chrono::Duration::days(1);
+        assert_eq!(dt.date_naive(), yesterday);
+    }
+
+    #[test]
+    fn test_parse_datetime_relative_hours() {
+        let dt = ClawprintMcp::parse_datetime("3 hours ago").unwrap();
+        let expected = chrono::Utc::now() - chrono::Duration::hours(3);
+        let diff = (dt - expected).num_seconds().abs();
+        assert!(
+            diff < 2,
+            "parsed datetime should be ~3 hours ago, diff={diff}s"
+        );
+    }
+
+    #[test]
+    fn test_parse_datetime_relative_days() {
+        let dt = ClawprintMcp::parse_datetime("2 days ago").unwrap();
+        let expected = chrono::Utc::now() - chrono::Duration::days(2);
+        let diff = (dt - expected).num_seconds().abs();
+        assert!(diff < 2);
+    }
+
+    #[test]
+    fn test_parse_datetime_relative_minutes() {
+        let dt = ClawprintMcp::parse_datetime("30 minutes ago").unwrap();
+        let expected = chrono::Utc::now() - chrono::Duration::minutes(30);
+        let diff = (dt - expected).num_seconds().abs();
+        assert!(diff < 2);
+    }
+
+    #[test]
+    fn test_parse_datetime_invalid() {
+        assert!(ClawprintMcp::parse_datetime("not-a-date").is_none());
+        assert!(ClawprintMcp::parse_datetime("").is_none());
+    }
+
+    #[test]
+    fn test_truncate_short() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_exact() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long() {
+        assert_eq!(truncate("hello world", 5), "hello...");
+    }
+
+    #[test]
+    fn test_truncate_multibyte() {
+        // "café" is 5 bytes (é = 2 bytes), truncating at 4 must not split é
+        let result = truncate("café", 4);
+        assert_eq!(result, "caf...");
+    }
+
+    #[test]
+    fn test_format_bytes_b() {
+        assert_eq!(format_bytes(500), "500 B");
+    }
+
+    #[test]
+    fn test_format_bytes_kb() {
+        assert_eq!(format_bytes(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn test_format_bytes_mb() {
+        assert_eq!(format_bytes(5 * 1024 * 1024), "5.0 MB");
+    }
+
+    #[test]
+    fn test_format_bytes_gb() {
+        assert_eq!(format_bytes(3 * 1024 * 1024 * 1024), "3.0 GB");
+    }
+
+    #[test]
+    fn test_format_duration_seconds() {
+        assert_eq!(format_duration(45), "45s");
+    }
+
+    #[test]
+    fn test_format_duration_minutes() {
+        assert_eq!(format_duration(125), "2m 5s");
+    }
+
+    #[test]
+    fn test_format_duration_hours() {
+        assert_eq!(format_duration(3661), "1h 1m 1s");
+    }
+
+    // -- Integration tests for MCP tools --
+
+    #[tokio::test]
+    async fn test_clawprint_status() {
+        let (_tmp, mcp) = setup();
+        let result = mcp.clawprint_status().await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("Total events: 5"), "got: {text}");
+        assert!(text.contains("VALID"));
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_list_runs() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(ListRunsParams {
+            since: None,
+            until: None,
+            limit: None,
+        });
+        let result = mcp.clawprint_list_runs(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("run-alpha"), "got: {text}");
+        assert!(text.contains("run-beta"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_get_run() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(GetRunParams {
+            run_id: "run-alpha".into(),
+        });
+        let result = mcp.clawprint_get_run(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("run-alpha"), "got: {text}");
+        assert!(text.contains("read_file"), "should list tool calls");
+        assert!(text.contains("bash"), "should list tool calls");
+        assert!(text.contains("All tests passed!"), "should include output");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_get_run_latest() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(GetRunParams {
+            run_id: "latest".into(),
+        });
+        let result = mcp.clawprint_get_run(params).await.unwrap();
+        let text = extract_text(&result);
+
+        // "latest" should resolve to a real run
+        assert!(
+            text.contains("run-alpha") || text.contains("run-beta"),
+            "got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_get_run_not_found() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(GetRunParams {
+            run_id: "nonexistent".into(),
+        });
+        let result = mcp.clawprint_get_run(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("No events found"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_search() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(SearchParams {
+            query: "cargo test".into(),
+            kind: None,
+            since: None,
+            until: None,
+        });
+        let result = mcp.clawprint_search(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("1 matches"), "got: {text}");
+        assert!(text.contains("cargo test"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_search_no_results() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(SearchParams {
+            query: "zzz_nonexistent_zzz".into(),
+            kind: None,
+            since: None,
+            until: None,
+        });
+        let result = mcp.clawprint_search(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("No events found"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_search_with_kind_filter() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(SearchParams {
+            query: "run-alpha".into(),
+            kind: Some("OUTPUT_CHUNK".into()),
+            since: None,
+            until: None,
+        });
+        let result = mcp.clawprint_search(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("1 matches"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_tool_calls() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(ToolCallsParams {
+            run_id: None,
+            since: None,
+            tool_name: None,
+        });
+        let result = mcp.clawprint_tool_calls(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("3 found"), "got: {text}");
+        assert!(text.contains("read_file"));
+        assert!(text.contains("bash"));
+        assert!(text.contains("write_file"));
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_tool_calls_filter_by_name() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(ToolCallsParams {
+            run_id: None,
+            since: None,
+            tool_name: Some("bash".into()),
+        });
+        let result = mcp.clawprint_tool_calls(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("1 found"), "got: {text}");
+        assert!(text.contains("bash"));
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_tool_calls_filter_by_run() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(ToolCallsParams {
+            run_id: Some("run-beta".into()),
+            since: None,
+            tool_name: None,
+        });
+        let result = mcp.clawprint_tool_calls(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("1 found"), "got: {text}");
+        assert!(text.contains("write_file"));
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_security_check() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(SecurityCheckParams {
+            since: None,
+            run_id: None,
+        });
+        let result = mcp.clawprint_security_check(params).await.unwrap();
+        let text = extract_text(&result);
+
+        // Our test data has no malicious events
+        assert!(
+            text.contains("No suspicious patterns detected"),
+            "got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_verify() {
+        let (_tmp, mcp) = setup();
+        let result = mcp.clawprint_verify().await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("VALID"), "got: {text}");
+        assert!(text.contains("5 events"), "got: {text}");
+        assert!(text.contains("Root hash:"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_stats() {
+        let (_tmp, mcp) = setup();
+        let params = Parameters(StatsParams { since: None });
+        let result = mcp.clawprint_stats(params).await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("5 total events"), "got: {text}");
+        assert!(text.contains("AGENT_EVENT"), "got: {text}");
+        assert!(text.contains("TICK"), "got: {text}");
+        assert!(text.contains("OUTPUT_CHUNK"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn test_clawprint_status_empty_ledger() {
+        let tmp = TempDir::new().unwrap();
+        {
+            let _ledger = Ledger::open(tmp.path(), 100).unwrap();
+            // no events
+        }
+        let mcp = ClawprintMcp::new(tmp.path().to_path_buf());
+        let result = mcp.clawprint_status().await.unwrap();
+        let text = extract_text(&result);
+
+        assert!(text.contains("Total events: 0"), "got: {text}");
+        assert!(text.contains("VALID"), "empty chain is valid");
+    }
+}
